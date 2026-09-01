@@ -18,8 +18,63 @@ CONFIDENCE_THRESHOLD = 60.0  # percent; below this an OCR engine's read is not t
 
 # Matches an Israeli company/business tax id (ח"פ) - 9 digits.
 TAX_ID_PATTERN = re.compile(r"\b\d{9}\b")
-AMOUNT_PATTERN = re.compile(r"(?:total|amount|סה\"?כ)\D{0,10}(\d+(?:\.\d{1,2})?)", re.IGNORECASE)
 DATE_PATTERN = re.compile(r"\b(\d{1,2})[/.\-](\d{1,2})[/.\-](\d{2,4})\b")
+
+# Currency-aware amount, e.g. "ILS 18,427.50", "₪18427.5", "$120".
+_AMOUNT_PATTERNS_BY_PRIORITY = (
+    # Tier 1: the actual amount due - always preferred when present. \s* (not \D)
+    # between the anchor and the number so a line break from Tesseract splitting
+    # "Total Due:" and "ILS 18,427.50" onto separate lines still matches.
+    re.compile(
+        r'(?:Total\s+Due|סה"?כ\s+לתשלום|סך\s+הכל\s+לתשלום)\s*[:\-=]?\s*(?:ILS|₪|\$)?\s*([\d,]+\.?\d*)',
+        re.IGNORECASE | re.MULTILINE,
+    ),
+    # Tier 2: generic total anchors. (?<!Sub)\bTotal\b deliberately excludes
+    # "Subtotal" so this tier can't accidentally pick up a subtotal line.
+    re.compile(
+        r'(?<!Sub)\bTotal\b\s*[:\-=]?\s*(?:ILS|₪|\$)?\s*([\d,]+\.?\d*)',
+        re.IGNORECASE | re.MULTILINE,
+    ),
+    # Tier 3: last-resort fallback, only used when no total anchor was found at all.
+    re.compile(
+        r'Subtotal\s*[:\-=]?\s*(?:ILS|₪|\$)?\s*([\d,]+\.?\d*)',
+        re.IGNORECASE | re.MULTILINE,
+    ),
+)
+
+
+def parse_total_amount(text: str) -> float | None:
+    """Finds the receipt's total, preferring explicit "Total Due" anchors over
+    generic totals, and generic totals over a bare subtotal fallback. Within a
+    tier, the LAST match wins - the actual amount due typically appears at the
+    bottom of a receipt, below subtotal/tax breakdown lines that come first.
+    Tesseract often splits a label and its value across lines/whitespace, so
+    anchors and numbers are joined with \\s* rather than requiring one line.
+
+    If no anchor matches at all (label and value too garbled to associate),
+    falls back to the largest decimal-looking number in the bottom 40% of the
+    text, since the grand total is almost always the last figure on a receipt.
+    """
+    for pattern in _AMOUNT_PATTERNS_BY_PRIORITY:
+        matches = pattern.findall(text)
+        if matches:
+            raw_val = matches[-1].strip().rstrip(".")
+            clean_val = raw_val.replace(",", "")
+            try:
+                val = float(clean_val)
+            except ValueError:
+                continue
+            if val > 0:
+                return val
+
+    lines = text.strip().split("\n")
+    bottom_text = " ".join(lines[-max(1, int(len(lines) * 0.4)):])
+    all_numbers = re.findall(r"[\d,]+\.\d{2}", bottom_text)
+    if all_numbers:
+        return max(float(n.replace(",", "")) for n in all_numbers)
+
+    return None
+
 
 _ERROR_MESSAGES = {
     "no_ocr_engine_available": "No OCR engine is available to read this receipt automatically.",
@@ -72,12 +127,11 @@ def _extract_candidate_fields(text: str) -> dict:
     if tax_match:
         candidate["tax_id"] = tax_match.group(0)
 
-    amount_match = AMOUNT_PATTERN.search(text)
-    if amount_match:
-        try:
-            candidate["amount"] = float(amount_match.group(1))
-        except ValueError:
-            pass
+    amount = parse_total_amount(text)
+    print(f"[ocr_service] raw_ocr_text={text!r}")
+    print(f"[ocr_service] extracted_total={amount!r}")
+    if amount is not None:
+        candidate["amount"] = amount
 
     date_match = DATE_PATTERN.search(text)
     if date_match:
