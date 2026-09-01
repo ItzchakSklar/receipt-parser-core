@@ -9,10 +9,16 @@ const MONTH_NAMES = [
   "July", "August", "September", "October", "November", "December",
 ];
 
-export default function SendToAccountantModal({ onClose }: { onClose: () => void }) {
+interface SendToAccountantModalProps {
+  onClose: () => void;
+  initialMonth?: number;
+  initialYear?: number;
+}
+
+export default function SendToAccountantModal({ onClose, initialMonth, initialYear }: SendToAccountantModalProps) {
   const now = new Date();
-  const [month, setMonth] = useState(now.getMonth() + 1);
-  const [year, setYear] = useState(now.getFullYear());
+  const [month, setMonth] = useState(initialMonth ?? now.getMonth() + 1);
+  const [year, setYear] = useState(initialYear ?? now.getFullYear());
   const [email, setEmail] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<MonthlyExportResponse | null>(null);
