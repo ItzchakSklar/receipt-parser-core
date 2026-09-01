@@ -1,0 +1,21 @@
+# Backend
+backend/.venv/
+backend/__pycache__/
+backend/**/__pycache__/
+backend/*.db
+backend/.env
+backend/uploads/*
+!backend/uploads/.gitkeep
+backend/sent_emails/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+frontend/*.tsbuildinfo
+frontend/vite.config.js
+frontend/vite.config.d.ts
+
+# Editors / OS
+.vscode/
+.DS_Store
