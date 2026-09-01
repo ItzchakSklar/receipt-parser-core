@@ -13,7 +13,7 @@ python-dotenv==1.2.3
 # Optional OCR/text-extraction backends. Without at least one of these installed,
 # every upload requires manual field confirmation (see app/services/ocr_service.py) -
 # by design, the app never fabricates receipt data.
-# pytesseract==0.3.13
-# Pillow==10.4.0
+pytesseract==0.3.13
+Pillow==10.4.0
 # easyocr==1.7.2
 # pypdf==5.1.0

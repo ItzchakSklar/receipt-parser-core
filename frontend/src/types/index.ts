@@ -39,19 +39,6 @@ export interface Invoice {
   created_at: string;
 }
 
-export interface OCRErrorDetail {
-  error: string;
-  message: string;
-  missing_fields: string[];
-  extracted: {
-    vendor_name?: string;
-    amount?: number;
-    date?: string;
-    tax_id?: string;
-  };
-  file_reference: string;
-}
-
 export interface MonthlyExportResponse {
   status: string;
   mode: "smtp" | "mock";

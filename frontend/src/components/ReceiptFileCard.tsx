@@ -1,4 +1,5 @@
 import { FileText } from "lucide-react";
+import type { MouseEvent } from "react";
 
 import type { Invoice } from "../types";
 import { formatILS } from "../utils/currency";
@@ -9,9 +10,10 @@ interface ReceiptFileCardProps {
   selected: boolean;
   onSelect: () => void;
   onOpen: () => void;
+  onContextMenu: (e: MouseEvent<HTMLDivElement>) => void;
 }
 
-export default function ReceiptFileCard({ invoice, selected, onSelect, onOpen }: ReceiptFileCardProps) {
+export default function ReceiptFileCard({ invoice, selected, onSelect, onOpen, onContextMenu }: ReceiptFileCardProps) {
   const isPdf = invoice.file_path.toLowerCase().endsWith(".pdf");
 
   return (
@@ -20,6 +22,7 @@ export default function ReceiptFileCard({ invoice, selected, onSelect, onOpen }:
       tabIndex={0}
       onClick={onSelect}
       onDoubleClick={onOpen}
+      onContextMenu={onContextMenu}
       onKeyDown={(e) => {
         if (e.key === "Enter") onOpen();
       }}

@@ -1,8 +1,11 @@
-import { ChevronRight, Mail } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { ChevronRight, Download, Mail, Pencil, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useState, type MouseEvent } from "react";
 
 import { api } from "../api/client";
 import type { Invoice } from "../types";
+import ConfirmDialog from "./ConfirmDialog";
+import ContextMenu from "./ContextMenu";
+import EditInvoiceModal from "./EditInvoiceModal";
 import MonthFolderCard from "./MonthFolderCard";
 import ReceiptFileCard from "./ReceiptFileCard";
 import ReceiptLightboxModal from "./ReceiptLightboxModal";
@@ -26,6 +29,10 @@ export default function InvoiceExplorer({ refreshKey }: { refreshKey: number }) 
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<number | null>(null);
   const [lightboxInvoice, setLightboxInvoice] = useState<Invoice | null>(null);
   const [showExportModal, setShowExportModal] = useState(false);
+  const [contextMenu, setContextMenu] = useState<{ invoice: Invoice; x: number; y: number } | null>(null);
+  const [editingInvoice, setEditingInvoice] = useState<Invoice | null>(null);
+  const [deletingInvoice, setDeletingInvoice] = useState<Invoice | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   useEffect(() => {
     setLoading(true);
@@ -71,6 +78,51 @@ export default function InvoiceExplorer({ refreshKey }: { refreshKey: number }) 
   function openMonth(monthIndex: number) {
     setSelectedMonth(monthIndex + 1);
     setSelectedInvoiceId(null);
+  }
+
+  function handleCardContextMenu(e: MouseEvent<HTMLDivElement>, invoice: Invoice) {
+    e.preventDefault();
+    setSelectedInvoiceId(invoice.id);
+    setContextMenu({ invoice, x: e.clientX, y: e.clientY });
+  }
+
+  function handleInvoiceUpdated(updated: Invoice) {
+    setInvoices((prev) => prev.map((inv) => (inv.id === updated.id ? updated : inv)));
+    setLightboxInvoice((prev) => (prev && prev.id === updated.id ? updated : prev));
+    setEditingInvoice(null);
+  }
+
+  async function handleDeleteConfirmed() {
+    if (!deletingInvoice) return;
+    try {
+      await api.delete(`/invoices/${deletingInvoice.id}`);
+      setInvoices((prev) => prev.filter((inv) => inv.id !== deletingInvoice.id));
+      setSelectedInvoiceId((prev) => (prev === deletingInvoice.id ? null : prev));
+      setLightboxInvoice((prev) => (prev && prev.id === deletingInvoice.id ? null : prev));
+      setDeletingInvoice(null);
+      setDeleteError(null);
+    } catch (err: any) {
+      setDeleteError(err?.response?.data?.detail ?? "מחיקת החשבונית נכשלה. נסה שוב.");
+    }
+  }
+
+  async function handleDownload(invoice: Invoice) {
+    try {
+      const { data } = await api.get(`/invoices/${invoice.id}/file`, { responseType: "blob" });
+      const extension = invoice.file_path.split(".").pop() || "bin";
+      const safeVendor = invoice.vendor_name.replace(/[^\p{L}\p{N}_-]+/gu, "_") || "receipt";
+      const dateStr = new Date(invoice.date).toISOString().slice(0, 10);
+      const url = URL.createObjectURL(data);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${safeVendor}-${dateStr}.${extension}`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      // Best-effort download — the receipt remains viewable in the lightbox regardless.
+    }
   }
 
   return (
@@ -157,6 +209,7 @@ export default function InvoiceExplorer({ refreshKey }: { refreshKey: number }) 
                   selected={selectedInvoiceId === inv.id}
                   onSelect={() => setSelectedInvoiceId(inv.id)}
                   onOpen={() => setLightboxInvoice(inv)}
+                  onContextMenu={(e) => handleCardContextMenu(e, inv)}
                 />
               ))}
             </div>
@@ -173,6 +226,51 @@ export default function InvoiceExplorer({ refreshKey }: { refreshKey: number }) 
           onClose={() => setShowExportModal(false)}
           initialMonth={selectedMonth ?? undefined}
           initialYear={selectedYear}
+        />
+      )}
+
+      {contextMenu && (
+        <ContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          onClose={() => setContextMenu(null)}
+          items={[
+            {
+              label: "ערוך פרטים",
+              icon: <Pencil size={15} />,
+              onClick: () => setEditingInvoice(contextMenu.invoice),
+            },
+            {
+              label: "הורד קובץ מקורי",
+              icon: <Download size={15} />,
+              onClick: () => handleDownload(contextMenu.invoice),
+            },
+            {
+              label: "מחק חשבונית",
+              icon: <Trash2 size={15} />,
+              danger: true,
+              onClick: () => setDeletingInvoice(contextMenu.invoice),
+            },
+          ]}
+        />
+      )}
+
+      {editingInvoice && (
+        <EditInvoiceModal invoice={editingInvoice} onSaved={handleInvoiceUpdated} onCancel={() => setEditingInvoice(null)} />
+      )}
+
+      {deletingInvoice && (
+        <ConfirmDialog
+          title="מחיקת חשבונית"
+          message={`האם למחוק את החשבונית מ-${deletingInvoice.vendor_name}? לא ניתן לשחזר פעולה זו.`}
+          confirmLabel="מחק"
+          danger
+          error={deleteError}
+          onConfirm={handleDeleteConfirmed}
+          onCancel={() => {
+            setDeletingInvoice(null);
+            setDeleteError(null);
+          }}
         />
       )}
     </div>

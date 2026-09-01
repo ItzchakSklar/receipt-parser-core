@@ -1,9 +1,16 @@
-from fastapi import FastAPI
+import logging
+
+from fastapi import FastAPI, Request, status
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.config import settings
 from app.database import Base, engine
 from app.routers import auth, categories, dashboard, invoices, system
+
+logger = logging.getLogger("smartreceipt.validation")
 
 Base.metadata.create_all(bind=engine)
 
@@ -20,6 +27,21 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(RequestValidationError)
+async def log_validation_errors(request: Request, exc: RequestValidationError) -> JSONResponse:
+    logger.error(
+        "422 Unprocessable Entity on %s %s\n  errors: %s\n  content-type: %s",
+        request.method,
+        request.url.path,
+        exc.errors(),
+        request.headers.get("content-type"),
+    )
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content=jsonable_encoder({"detail": exc.errors()}),
+    )
 
 app.include_router(auth.router)
 app.include_router(categories.router)

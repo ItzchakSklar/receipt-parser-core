@@ -1,7 +1,8 @@
+import logging
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlalchemy import extract
 from sqlalchemy.orm import Session
@@ -23,6 +24,8 @@ from app.services.ocr_service import OCRLowConfidenceError, parse_invoice
 from app.services.report_service import build_monthly_csv, build_receipts_zip
 
 router = APIRouter(prefix="/api/invoices", tags=["invoices"])
+
+logger = logging.getLogger("smartreceipt.invoices")
 
 ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp", "application/pdf"}
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
@@ -57,7 +60,7 @@ def _serialize_extracted(extracted: dict) -> dict:
 
 @router.post("/upload", response_model=InvoiceOut, status_code=status.HTTP_201_CREATED)
 async def upload_invoice(
-    file: UploadFile,
+    file: UploadFile = File(...),
     business_id: int = Depends(get_current_business_id),
     db: Session = Depends(get_db),
 ):
@@ -82,6 +85,15 @@ async def upload_invoice(
         ocr_result = parse_invoice(file.filename or stored_name, file_bytes, file.content_type)
     except OCRLowConfidenceError as exc:
         info = exc.info
+        logger.warning(
+            "422 on POST /api/invoices/upload: OCR could not confirm data "
+            "(reason=%s, engine=%s, missing_fields=%s). filename=%r content_type=%r",
+            info.reason,
+            info.engine,
+            info.missing_fields,
+            file.filename,
+            file.content_type,
+        )
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={
@@ -254,6 +266,7 @@ def get_invoice_file(
     return FileResponse(file_path)
 
 
+@router.put("/{invoice_id}", response_model=InvoiceOut)
 @router.patch("/{invoice_id}", response_model=InvoiceOut)
 def update_invoice(
     invoice_id: int,
@@ -261,6 +274,9 @@ def update_invoice(
     business_id: int = Depends(get_current_business_id),
     db: Session = Depends(get_db),
 ):
+    """Updates invoice metadata (vendor, amount, date, category) from the file
+    explorer's "Edit Details" action. Registered under both PUT and PATCH since the
+    frontend only ever sends the fields the edit modal actually exposes."""
     invoice = (
         db.query(Invoice)
         .filter(Invoice.id == invoice_id, Invoice.business_id == business_id)
@@ -269,7 +285,14 @@ def update_invoice(
     if invoice is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Invoice not found")
 
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    updates = payload.model_dump(exclude_unset=True)
+
+    if "category_id" in updates and updates["category_id"] is not None:
+        category = db.get(Category, updates["category_id"])
+        if category is None or category.business_id != business_id:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid category_id.")
+
+    for field, value in updates.items():
         setattr(invoice, field, value)
 
     db.commit()
@@ -291,5 +314,15 @@ def delete_invoice(
     if invoice is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Invoice not found")
 
+    file_path = Path(invoice.file_path)
+
     db.delete(invoice)
     db.commit()
+
+    # Best-effort: the DB row is already gone, which is the source of truth for the
+    # UI, so a stray file on disk is a cleanup miss rather than a data-integrity issue.
+    if file_path.is_file():
+        try:
+            file_path.unlink()
+        except OSError:
+            pass

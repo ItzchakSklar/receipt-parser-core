@@ -18,7 +18,7 @@ receipt-parser-core/
 |   |   |-- dependencies.py         get_current_user / get_current_business_id
 |   |   |-- routers/
 |   |   |   |-- auth.py             POST /api/auth/register, /api/auth/login
-|   |   |   |-- invoices.py         Upload, confirm, list, file, export-monthly
+|   |   |   |-- invoices.py         Upload, confirm, list, file, update (PUT/PATCH), delete, export-monthly
 |   |   |   |-- categories.py       List/create expense categories
 |   |   |   |-- dashboard.py        GET /api/dashboard/stats
 |   |   |   |-- system.py           GET /api/system/time (WorldTimeAPI proxy)
@@ -41,9 +41,11 @@ receipt-parser-core/
             |-- Header.tsx               Nav + live clock + user menu
             |-- LiveClock.tsx            Live external-time widget
             |-- LoginForm.tsx            Sign in / register a business
-            |-- UploadZone.tsx           Drag & drop receipt upload
-            |-- ManualEntryModal.tsx     Confirm fields when OCR can't read them
+            |-- UploadZone.tsx           Drag & drop receipt upload (zero-form retry on unclear scans)
             |-- ReceiptPreviewModal.tsx  View the original receipt image/PDF
+            |-- ContextMenu.tsx          Right-click menu on receipt cards (edit/delete/download)
+            |-- EditInvoiceModal.tsx     Edit vendor/amount/date/category for one invoice
+            |-- ConfirmDialog.tsx        Generic confirmation dialog (used for delete)
             |-- SendToAccountantModal.tsx  Monthly report email dispatch
             |-- Modal.tsx                Shared modal shell
             |-- Dashboard.tsx            Stat cards + pie/bar charts (recharts)
@@ -143,11 +145,12 @@ If no engine is installed, the file can't be read reliably, or confidence is too
 }
 ```
 
-The file is still saved on disk. The frontend's `ManualEntryModal` uses the returned
-`file_reference` to let the user confirm/fill in the fields, then calls
-`POST /api/invoices/confirm` to finalize the invoice - so every row in the database is
-either OCR-verified (`ocr_source: "ocr"`) or user-confirmed (`ocr_source: "manual"`),
-never fabricated.
+The file is still saved on disk. The frontend never opens a manual fill-in form for
+this - `UploadZone` shows a friendly "not clear enough, please re-upload" banner with a
+single retry action instead, so every row in the database stays OCR-verified
+(`ocr_source: "ocr"`). A saved invoice's vendor/amount/date/category can still be
+corrected afterwards via the file explorer's right-click "Edit Details" action
+(`PUT /api/invoices/{id}`).
 
 To enable real OCR, uncomment the relevant lines in `backend/requirements.txt` and
 `pip install` them (for Tesseract, also install the Tesseract binary itself and make
@@ -161,7 +164,9 @@ served as static files (no public `/uploads` mount). The only way to read a rece
 tenant can never fetch another tenant's receipt, even by guessing a file path. The
 frontend's `ReceiptPreviewModal` fetches this endpoint as a blob and renders it as an
 `<img>` (JPEG/PNG/WEBP) or `<iframe>` (PDF); click the eye icon on any row in the
-invoice table to open it.
+invoice table to open it. Right-click a receipt card in the file explorer for
+"Download Original File", which fetches the same endpoint and saves it locally.
+`DELETE /api/invoices/{id}` removes both the database row and the file on disk.
 
 ## Monthly Accountant Export
 

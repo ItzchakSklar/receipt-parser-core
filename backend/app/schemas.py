@@ -76,8 +76,8 @@ class InvoiceOut(BaseModel):
 
 
 class InvoiceUpdate(BaseModel):
-    vendor_name: str | None = None
-    amount: float | None = None
+    vendor_name: str | None = Field(default=None, min_length=1)
+    amount: float | None = Field(default=None, gt=0)
     date: datetime | None = None
     tax_id: str | None = None
     category_id: int | None = None

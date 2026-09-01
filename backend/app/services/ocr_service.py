@@ -106,14 +106,27 @@ def _candidate_to_result(candidate: dict, text: str, engine: str) -> OCRResult:
     )
 
 
+_WINDOWS_TESSERACT_FALLBACK = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+
+
 def _try_tesseract(file_bytes: bytes) -> tuple[OCRResult | None, LowConfidenceInfo | None]:
     try:
         import io
+        import shutil
 
         import pytesseract
         from PIL import Image
     except ImportError:
         return None, None
+
+    # On Windows, a freshly-installed tesseract.exe often isn't on PATH yet for
+    # the currently-running process (PATH refreshes on new sessions, not live
+    # ones). Fall back to the default install location rather than failing.
+    if shutil.which(pytesseract.pytesseract.tesseract_cmd) is None:
+        import os
+
+        if os.path.isfile(_WINDOWS_TESSERACT_FALLBACK):
+            pytesseract.pytesseract.tesseract_cmd = _WINDOWS_TESSERACT_FALLBACK
 
     try:
         image = Image.open(io.BytesIO(file_bytes))
