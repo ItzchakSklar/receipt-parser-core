@@ -1,17 +1,23 @@
 """Invoice/receipt OCR parsing.
 
-Zero-hallucination policy: this module NEVER invents data. It tries real OCR backends
-(pytesseract, then EasyOCR, then embedded-text extraction for PDFs) and only returns a
-result when the critical fields (vendor, amount, date, tax id) were actually read with
-acceptable confidence. If no backend is installed, the file is unreadable, or
+Zero-hallucination policy: this module NEVER invents data. Every supported file is
+rasterized to one PIL Image per page (see `_load_page_images`) and run through the
+same recognition engines - pytesseract, then EasyOCR - so a PDF is held to exactly the
+same confidence threshold and field extraction as a photographed receipt image, instead
+of a separate embedded-text-only code path with no confidence signal. A result is
+returned only when the critical fields (vendor, amount, date, tax id) were actually
+read with acceptable confidence. If no backend is installed, the file is unreadable, or
 confidence is too low, `parse_invoice` raises `OCRLowConfidenceError` instead of
 returning fabricated data - callers must ask the user to re-upload a clearer file or
 confirm the fields manually.
 """
 
+import os
 import re
+import tempfile
 from dataclasses import dataclass, field
 from datetime import date
+from pathlib import Path
 
 REQUIRED_FIELDS = ["vendor_name", "amount", "date", "tax_id"]
 CONFIDENCE_THRESHOLD = 60.0  # percent; below this an OCR engine's read is not trusted
@@ -181,14 +187,76 @@ def _candidate_to_result(candidate: dict, text: str, engine: str) -> OCRResult:
 
 _WINDOWS_TESSERACT_FALLBACK = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
+# Render resolution for PDF pages. High enough for Tesseract to read normal receipt
+# font sizes; the PDF equivalent of "photograph the receipt at a decent resolution".
+_PDF_RENDER_DPI = 200
 
-def _try_tesseract(file_bytes: bytes) -> tuple[OCRResult | None, LowConfidenceInfo | None]:
+# Israeli business receipts are commonly Hebrew, but a default Tesseract install only
+# ships the English language pack - eng-only recognition reads Hebrew labels as noise
+# and tanks average confidence below CONFIDENCE_THRESHOLD even when every field is
+# actually present (this, not PDF rasterization quality, was why real PDFs failed
+# while English-sample images passed). heb.traineddata is fetched into a per-user data
+# dir (not Tesseract's own tessdata dir, which isn't writable without admin rights) -
+# and specifically NOT a path under the repo checkout, because Tesseract's Windows
+# binary reads --tessdata-dir with the ANSI codepage rather than as Unicode, so any
+# non-ASCII character anywhere in the path (this repo itself is checked out under a
+# Hebrew-named folder) makes it fail to find the language files at all. Falls back to
+# English-only if the language pack hasn't been fetched.
+_TESSDATA_DIR = Path(os.environ.get("LOCALAPPDATA", tempfile.gettempdir())) / "SmartReceipt" / "tessdata"
+if (_TESSDATA_DIR / "heb.traineddata").is_file() and (_TESSDATA_DIR / "eng.traineddata").is_file():
+    _TESSERACT_LANG = "heb+eng"
+    # No surrounding quotes: pytesseract passes this through shlex.split() and then
+    # execs tesseract via an argv list (no shell involved), so a quoted value would
+    # have the literal quote characters attached to the path instead of being stripped.
+    _TESSERACT_CONFIG = f"--tessdata-dir {_TESSDATA_DIR}"
+else:
+    _TESSERACT_LANG = "eng"
+    _TESSERACT_CONFIG = ""
+
+
+def _pdf_to_images(file_bytes: bytes) -> list | None:
+    """Rasterizes each page of a PDF into a PIL Image, so PDFs - scanned or
+    text-layer alike - are read by the same OCR engines as a photographed receipt."""
     try:
         import io
+
+        import pymupdf
+        from PIL import Image
+    except ImportError:
+        return None
+
+    zoom = _PDF_RENDER_DPI / 72
+    matrix = pymupdf.Matrix(zoom, zoom)
+    images = []
+    with pymupdf.open(stream=file_bytes, filetype="pdf") as doc:
+        for page in doc:
+            pixmap = page.get_pixmap(matrix=matrix)
+            images.append(Image.open(io.BytesIO(pixmap.tobytes("png"))))
+    return images
+
+
+def _load_page_images(file_bytes: bytes, content_type: str | None) -> list | None:
+    """Turns any supported upload into a list of per-page PIL Images - one item for a
+    plain image file, one per page for a PDF - so every downstream OCR engine works
+    off the same representation regardless of source format."""
+    if content_type and content_type.startswith("image/"):
+        import io
+
+        from PIL import Image
+
+        return [Image.open(io.BytesIO(file_bytes))]
+
+    if content_type == "application/pdf":
+        return _pdf_to_images(file_bytes)
+
+    return None
+
+
+def _try_tesseract(images: list) -> tuple[OCRResult | None, LowConfidenceInfo | None]:
+    try:
         import shutil
 
         import pytesseract
-        from PIL import Image
     except ImportError:
         return None, None
 
@@ -202,10 +270,17 @@ def _try_tesseract(file_bytes: bytes) -> tuple[OCRResult | None, LowConfidenceIn
             pytesseract.pytesseract.tesseract_cmd = _WINDOWS_TESSERACT_FALLBACK
 
     try:
-        image = Image.open(io.BytesIO(file_bytes))
-        text = pytesseract.image_to_string(image)
-        data = pytesseract.image_to_data(image, output_type=pytesseract.Output.DICT)
-        confidences = [int(c) for c in data.get("conf", []) if str(c).lstrip("-").isdigit() and int(c) >= 0]
+        page_texts = []
+        confidences: list[int] = []
+        for image in images:
+            page_texts.append(pytesseract.image_to_string(image, lang=_TESSERACT_LANG, config=_TESSERACT_CONFIG))
+            data = pytesseract.image_to_data(
+                image, lang=_TESSERACT_LANG, config=_TESSERACT_CONFIG, output_type=pytesseract.Output.DICT
+            )
+            confidences.extend(
+                int(c) for c in data.get("conf", []) if str(c).lstrip("-").isdigit() and int(c) >= 0
+            )
+        text = "\n".join(page_texts)
         avg_confidence = (sum(confidences) / len(confidences)) if confidences else 0.0
 
         candidate = _extract_candidate_fields(text)
@@ -220,22 +295,22 @@ def _try_tesseract(file_bytes: bytes) -> tuple[OCRResult | None, LowConfidenceIn
         return None, LowConfidenceInfo(reason="engine_error", engine="tesseract")
 
 
-def _try_easyocr(file_bytes: bytes) -> tuple[OCRResult | None, LowConfidenceInfo | None]:
+def _try_easyocr(images: list) -> tuple[OCRResult | None, LowConfidenceInfo | None]:
     try:
-        import io
-
         import easyocr
         import numpy as np
-        from PIL import Image
     except ImportError:
         return None, None
 
     try:
-        image = np.array(Image.open(io.BytesIO(file_bytes)).convert("RGB"))
-        reader = easyocr.Reader(["en"], gpu=False)
-        results = reader.readtext(image, detail=1)
-        text = "\n".join(r[1] for r in results)
-        confidences = [r[2] * 100 for r in results]
+        reader = easyocr.Reader(["en", "he"], gpu=False)
+        page_texts = []
+        confidences: list[float] = []
+        for image in images:
+            results = reader.readtext(np.array(image.convert("RGB")), detail=1)
+            page_texts.append("\n".join(r[1] for r in results))
+            confidences.extend(r[2] * 100 for r in results)
+        text = "\n".join(page_texts)
         avg_confidence = (sum(confidences) / len(confidences)) if confidences else 0.0
 
         candidate = _extract_candidate_fields(text)
@@ -250,50 +325,26 @@ def _try_easyocr(file_bytes: bytes) -> tuple[OCRResult | None, LowConfidenceInfo
         return None, LowConfidenceInfo(reason="engine_error", engine="easyocr")
 
 
-def _try_pdf_text(file_bytes: bytes) -> tuple[OCRResult | None, LowConfidenceInfo | None]:
-    try:
-        import io
-
-        from pypdf import PdfReader
-    except ImportError:
-        return None, None
-
-    try:
-        reader = PdfReader(io.BytesIO(file_bytes))
-        text = "\n".join(page.extract_text() or "" for page in reader.pages)
-        candidate = _extract_candidate_fields(text)
-        missing = _missing_fields(candidate)
-
-        if not missing:
-            return _candidate_to_result(candidate, text, engine="pypdf"), None
-
-        return None, LowConfidenceInfo(reason="missing_fields", engine="pypdf", extracted=candidate, missing_fields=missing)
-    except Exception:
-        return None, LowConfidenceInfo(reason="engine_error", engine="pypdf")
-
-
 def parse_invoice(filename: str, file_bytes: bytes, content_type: str | None) -> OCRResult:
     """Extracts vendor name, total amount, date, and tax id (ח"פ) from an uploaded
-    receipt using real OCR/text-extraction only. Raises OCRLowConfidenceError - never
-    returns fabricated data - when no engine can read the file reliably."""
-    is_image = bool(content_type and content_type.startswith("image/"))
-    is_pdf = content_type == "application/pdf"
-
+    receipt using real OCR only. Raises OCRLowConfidenceError - never returns
+    fabricated data - when no engine can read the file reliably."""
     attempts: list[LowConfidenceInfo] = []
 
-    if is_image:
+    try:
+        images = _load_page_images(file_bytes, content_type)
+    except Exception:
+        images = None
+        engine = "pymupdf" if content_type == "application/pdf" else "pillow"
+        attempts.append(LowConfidenceInfo(reason="engine_error", engine=engine))
+
+    if images:
         for attempt in (_try_tesseract, _try_easyocr):
-            result, low_confidence = attempt(file_bytes)
+            result, low_confidence = attempt(images)
             if result is not None:
                 return result
             if low_confidence is not None:
                 attempts.append(low_confidence)
-    elif is_pdf:
-        result, low_confidence = _try_pdf_text(file_bytes)
-        if result is not None:
-            return result
-        if low_confidence is not None:
-            attempts.append(low_confidence)
 
     if attempts:
         best = max(attempts, key=lambda a: len(REQUIRED_FIELDS) - len(a.missing_fields))
