@@ -1,8 +1,8 @@
-import { Clock, WifiOff } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { Clock, WifiOff } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 
-import { api } from "../api/client";
-import type { ExternalTime } from "../types";
+import { api } from '../api/client';
+import type { ExternalTime } from '../types';
 
 const RESYNC_INTERVAL_MS = 60_000;
 const TICK_INTERVAL_MS = 1_000;
@@ -15,7 +15,7 @@ export default function LiveClock() {
 
   async function syncTime() {
     try {
-      const { data } = await api.get<ExternalTime>("/system/time");
+      const { data } = await api.get<ExternalTime>('/system/time');
       setExternalTime(data);
       baseReceivedAtRef.current = Date.now();
       setDisplayTime(new Date(data.datetime));
@@ -54,11 +54,11 @@ export default function LiveClock() {
       <Clock size={16} className="text-brand-600" />
       <div className="leading-tight">
         <div className="font-mono text-sm font-semibold text-slate-800">
-          {displayTime ? displayTime.toLocaleTimeString() : "--:--:--"}
+          {displayTime ? displayTime.toLocaleTimeString() : '--:--:--'}
         </div>
         <div className="text-[10px] text-slate-400">
-          {externalTime?.timezone ?? "syncing..."}
-          {externalTime?.source === "local_fallback" && " (local)"}
+          {externalTime?.timezone ?? 'syncing...'}
+          {externalTime?.source === 'local_fallback' && ' (local)'}
         </div>
       </div>
     </div>

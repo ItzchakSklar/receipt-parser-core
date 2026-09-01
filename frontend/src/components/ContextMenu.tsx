@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from 'react';
 
 export interface ContextMenuItem {
   label: string;
@@ -24,15 +24,15 @@ export default function ContextMenu({ x, y, items, onClose }: ContextMenuProps) 
       if (ref.current && !ref.current.contains(e.target as Node)) onClose();
     }
     function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
+      if (e.key === 'Escape') onClose();
     }
-    window.addEventListener("mousedown", handlePointerDown);
-    window.addEventListener("keydown", handleKeyDown);
-    window.addEventListener("scroll", onClose, true);
+    window.addEventListener('mousedown', handlePointerDown);
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('scroll', onClose, true);
     return () => {
-      window.removeEventListener("mousedown", handlePointerDown);
-      window.removeEventListener("keydown", handleKeyDown);
-      window.removeEventListener("scroll", onClose, true);
+      window.removeEventListener('mousedown', handlePointerDown);
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('scroll', onClose, true);
     };
   }, [onClose]);
 
@@ -56,7 +56,7 @@ export default function ContextMenu({ x, y, items, onClose }: ContextMenuProps) 
             item.onClick();
           }}
           className={`flex w-full items-center gap-2.5 px-3.5 py-2 text-sm transition ${
-            item.danger ? "text-red-600 hover:bg-red-50" : "text-slate-700 hover:bg-slate-50"
+            item.danger ? 'text-red-600 hover:bg-red-50' : 'text-slate-700 hover:bg-slate-50'
           }`}
         >
           {item.icon}

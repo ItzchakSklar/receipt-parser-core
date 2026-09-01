@@ -35,7 +35,7 @@ export interface Invoice {
   category_id: number | null;
   category_name: string | null;
   file_path: string;
-  ocr_source: "ocr" | "manual";
+  ocr_source: 'ocr' | 'manual';
   uploaded_at_external_time: string;
   created_at: string;
 }
@@ -52,13 +52,13 @@ export interface ExtractedReceiptData {
 }
 
 export interface DuplicateExistsDetail {
-  error: "DUPLICATE_EXISTS";
+  error: 'DUPLICATE_EXISTS';
   message: string;
   existing_invoice: Invoice;
 }
 
 export interface DuplicateConflictDetail {
-  error: "DUPLICATE_CONFLICT";
+  error: 'DUPLICATE_CONFLICT';
   message: string;
   existing_invoice: Invoice;
   new_data: ExtractedReceiptData;
@@ -66,7 +66,7 @@ export interface DuplicateConflictDetail {
 
 export interface MonthlyExportResponse {
   status: string;
-  mode: "smtp" | "mock";
+  mode: 'smtp' | 'mock';
   invoice_count: number;
   total: number;
   recipient: string;

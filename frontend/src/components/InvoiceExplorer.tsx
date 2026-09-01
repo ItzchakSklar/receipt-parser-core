@@ -1,24 +1,44 @@
-import { ChevronRight, Download, Mail, Pencil, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useState, type MouseEvent } from "react";
+import { ChevronRight, Download, Mail, Pencil, Trash2 } from 'lucide-react';
+import { useEffect, useMemo, useState, type MouseEvent } from 'react';
 
-import { api } from "../api/client";
-import type { Invoice } from "../types";
-import ConfirmDialog from "./ConfirmDialog";
-import ContextMenu from "./ContextMenu";
-import EditInvoiceModal from "./EditInvoiceModal";
-import MonthFolderCard from "./MonthFolderCard";
-import ReceiptFileCard from "./ReceiptFileCard";
-import ReceiptLightboxModal from "./ReceiptLightboxModal";
-import SendToAccountantModal from "./SendToAccountantModal";
+import { api } from '../api/client';
+import type { Invoice } from '../types';
+import ConfirmDialog from './ConfirmDialog';
+import ContextMenu from './ContextMenu';
+import EditInvoiceModal from './EditInvoiceModal';
+import MonthFolderCard from './MonthFolderCard';
+import ReceiptFileCard from './ReceiptFileCard';
+import ReceiptLightboxModal from './ReceiptLightboxModal';
+import SendToAccountantModal from './SendToAccountantModal';
 
 const HEBREW_MONTHS = [
-  "ינואר", "פברואר", "מרץ", "אפריל", "מאי", "יוני",
-  "יולי", "אוגוסט", "ספטמבר", "אוקטובר", "נובמבר", "דצמבר",
+  'ינואר',
+  'פברואר',
+  'מרץ',
+  'אפריל',
+  'מאי',
+  'יוני',
+  'יולי',
+  'אוגוסט',
+  'ספטמבר',
+  'אוקטובר',
+  'נובמבר',
+  'דצמבר',
 ];
 
 const ENGLISH_MONTHS = [
-  "January", "February", "March", "April", "May", "June",
-  "July", "August", "September", "October", "November", "December",
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
 ];
 
 export default function InvoiceExplorer({ refreshKey }: { refreshKey: number }) {
@@ -29,7 +49,9 @@ export default function InvoiceExplorer({ refreshKey }: { refreshKey: number }) 
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<number | null>(null);
   const [lightboxInvoice, setLightboxInvoice] = useState<Invoice | null>(null);
   const [showExportModal, setShowExportModal] = useState(false);
-  const [contextMenu, setContextMenu] = useState<{ invoice: Invoice; x: number; y: number } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ invoice: Invoice; x: number; y: number } | null>(
+    null,
+  );
   const [editingInvoice, setEditingInvoice] = useState<Invoice | null>(null);
   const [deletingInvoice, setDeletingInvoice] = useState<Invoice | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -37,7 +59,7 @@ export default function InvoiceExplorer({ refreshKey }: { refreshKey: number }) 
   useEffect(() => {
     setLoading(true);
     api
-      .get<Invoice[]>("/invoices")
+      .get<Invoice[]>('/invoices')
       .then(({ data }) => setInvoices(data))
       .finally(() => setLoading(false));
   }, [refreshKey]);
@@ -102,18 +124,18 @@ export default function InvoiceExplorer({ refreshKey }: { refreshKey: number }) 
       setDeletingInvoice(null);
       setDeleteError(null);
     } catch (err: any) {
-      setDeleteError(err?.response?.data?.detail ?? "מחיקת החשבונית נכשלה. נסה שוב.");
+      setDeleteError(err?.response?.data?.detail ?? 'מחיקת החשבונית נכשלה. נסה שוב.');
     }
   }
 
   async function handleDownload(invoice: Invoice) {
     try {
-      const { data } = await api.get(`/invoices/${invoice.id}/file`, { responseType: "blob" });
-      const extension = invoice.file_path.split(".").pop() || "bin";
-      const safeVendor = invoice.vendor_name.replace(/[^\p{L}\p{N}_-]+/gu, "_") || "receipt";
+      const { data } = await api.get(`/invoices/${invoice.id}/file`, { responseType: 'blob' });
+      const extension = invoice.file_path.split('.').pop() || 'bin';
+      const safeVendor = invoice.vendor_name.replace(/[^\p{L}\p{N}_-]+/gu, '_') || 'receipt';
       const dateStr = new Date(invoice.date).toISOString().slice(0, 10);
       const url = URL.createObjectURL(data);
-      const link = document.createElement("a");
+      const link = document.createElement('a');
       link.href = url;
       link.download = `${safeVendor}-${dateStr}.${extension}`;
       document.body.appendChild(link);
@@ -137,14 +159,20 @@ export default function InvoiceExplorer({ refreshKey }: { refreshKey: number }) 
           <button
             type="button"
             onClick={openYearView}
-            className={selectedMonth === null ? "font-semibold text-slate-800" : "hover:text-brand-700 font-medium"}
+            className={
+              selectedMonth === null
+                ? 'font-semibold text-slate-800'
+                : 'hover:text-brand-700 font-medium'
+            }
           >
             {selectedYear}
           </button>
           {selectedMonth !== null && (
             <>
               <ChevronRight size={14} className="text-slate-300" />
-              <span className="font-semibold text-slate-800">{ENGLISH_MONTHS[selectedMonth - 1]}</span>
+              <span className="font-semibold text-slate-800">
+                {ENGLISH_MONTHS[selectedMonth - 1]}
+              </span>
             </>
           )}
         </nav>
@@ -183,7 +211,7 @@ export default function InvoiceExplorer({ refreshKey }: { refreshKey: number }) 
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <p className="text-sm text-slate-400">
-              {filesInMonth.length} {filesInMonth.length === 1 ? "receipt" : "receipts"}
+              {filesInMonth.length} {filesInMonth.length === 1 ? 'receipt' : 'receipts'}
             </p>
             <button
               type="button"
@@ -192,13 +220,17 @@ export default function InvoiceExplorer({ refreshKey }: { refreshKey: number }) 
             >
               <Mail size={16} />
               Send Month to Accountant
-              <span className="text-slate-400" dir="rtl">שלח חודש זה לרואה חשבון</span>
+              <span className="text-slate-400" dir="rtl">
+                שלח חודש זה לרואה חשבון
+              </span>
             </button>
           </div>
 
           {filesInMonth.length === 0 ? (
             <div className="text-center py-16 bg-white rounded-2xl border border-slate-200">
-              <p className="text-slate-500">No receipts in {ENGLISH_MONTHS[selectedMonth - 1]} {selectedYear}.</p>
+              <p className="text-slate-500">
+                No receipts in {ENGLISH_MONTHS[selectedMonth - 1]} {selectedYear}.
+              </p>
             </div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
@@ -236,17 +268,17 @@ export default function InvoiceExplorer({ refreshKey }: { refreshKey: number }) 
           onClose={() => setContextMenu(null)}
           items={[
             {
-              label: "ערוך פרטים",
+              label: 'ערוך פרטים',
               icon: <Pencil size={15} />,
               onClick: () => setEditingInvoice(contextMenu.invoice),
             },
             {
-              label: "הורד קובץ מקורי",
+              label: 'הורד קובץ מקורי',
               icon: <Download size={15} />,
               onClick: () => handleDownload(contextMenu.invoice),
             },
             {
-              label: "מחק חשבונית",
+              label: 'מחק חשבונית',
               icon: <Trash2 size={15} />,
               danger: true,
               onClick: () => setDeletingInvoice(contextMenu.invoice),
@@ -256,7 +288,11 @@ export default function InvoiceExplorer({ refreshKey }: { refreshKey: number }) 
       )}
 
       {editingInvoice && (
-        <EditInvoiceModal invoice={editingInvoice} onSaved={handleInvoiceUpdated} onCancel={() => setEditingInvoice(null)} />
+        <EditInvoiceModal
+          invoice={editingInvoice}
+          onSaved={handleInvoiceUpdated}
+          onCancel={() => setEditingInvoice(null)}
+        />
       )}
 
       {deletingInvoice && (

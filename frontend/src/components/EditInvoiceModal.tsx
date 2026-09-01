@@ -1,8 +1,8 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from 'react';
 
-import { api } from "../api/client";
-import type { Category, Invoice } from "../types";
-import Modal from "./Modal";
+import { api } from '../api/client';
+import type { Category, Invoice } from '../types';
+import Modal from './Modal';
 
 interface EditInvoiceModalProps {
   invoice: Invoice;
@@ -21,7 +21,7 @@ export default function EditInvoiceModal({ invoice, onSaved, onCancel }: EditInv
 
   useEffect(() => {
     api
-      .get<Category[]>("/categories")
+      .get<Category[]>('/categories')
       .then(({ data }) => setCategories(data))
       .catch(() => {});
   }, []);
@@ -39,7 +39,7 @@ export default function EditInvoiceModal({ invoice, onSaved, onCancel }: EditInv
       });
       onSaved(data);
     } catch (err: any) {
-      setError(err?.response?.data?.detail ?? "לא ניתן היה לשמור את השינויים. נסה שוב.");
+      setError(err?.response?.data?.detail ?? 'לא ניתן היה לשמור את השינויים. נסה שוב.');
     } finally {
       setSubmitting(false);
     }
@@ -86,7 +86,7 @@ export default function EditInvoiceModal({ invoice, onSaved, onCancel }: EditInv
         <div>
           <label className="block text-sm font-medium text-slate-600 mb-1">קטגוריה</label>
           <select
-            value={categoryId ?? ""}
+            value={categoryId ?? ''}
             onChange={(e) => setCategoryId(e.target.value ? Number(e.target.value) : null)}
             className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
           >
@@ -106,7 +106,7 @@ export default function EditInvoiceModal({ invoice, onSaved, onCancel }: EditInv
           disabled={submitting}
           className="w-full bg-brand-600 hover:bg-brand-700 disabled:opacity-60 text-white font-medium py-2.5 rounded-lg transition"
         >
-          {submitting ? "שומר..." : "שמור שינויים"}
+          {submitting ? 'שומר...' : 'שמור שינויים'}
         </button>
       </form>
     </Modal>

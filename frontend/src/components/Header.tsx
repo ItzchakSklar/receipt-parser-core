@@ -1,15 +1,15 @@
-import { LogOut, Receipt } from "lucide-react";
+import { LogOut, Receipt } from 'lucide-react';
 
-import { useAuth } from "../context/AuthContext";
-import LiveClock from "./LiveClock";
+import { useAuth } from '../context/AuthContext';
+import LiveClock from './LiveClock';
 
 const TABS = [
-  { id: "dashboard", label: "Dashboard" },
-  { id: "upload", label: "Upload" },
-  { id: "invoices", label: "Invoices" },
+  { id: 'dashboard', label: 'Dashboard' },
+  { id: 'upload', label: 'Upload' },
+  { id: 'invoices', label: 'Invoices' },
 ] as const;
 
-export type TabId = (typeof TABS)[number]["id"];
+export type TabId = (typeof TABS)[number]['id'];
 
 interface HeaderProps {
   activeTab: TabId;
@@ -38,7 +38,9 @@ export default function Header({ activeTab, onTabChange }: HeaderProps) {
               key={tab.id}
               onClick={() => onTabChange(tab.id)}
               className={`px-4 py-1.5 text-sm font-medium rounded-md transition ${
-                activeTab === tab.id ? "bg-white shadow text-brand-700" : "text-slate-500 hover:text-slate-700"
+                activeTab === tab.id
+                  ? 'bg-white shadow text-brand-700'
+                  : 'text-slate-500 hover:text-slate-700'
               }`}
             >
               {tab.label}
@@ -68,7 +70,7 @@ export default function Header({ activeTab, onTabChange }: HeaderProps) {
             key={tab.id}
             onClick={() => onTabChange(tab.id)}
             className={`flex-1 py-2 text-sm font-medium ${
-              activeTab === tab.id ? "text-brand-700 border-b-2 border-brand-600" : "text-slate-500"
+              activeTab === tab.id ? 'text-brand-700 border-b-2 border-brand-600' : 'text-slate-500'
             }`}
           >
             {tab.label}

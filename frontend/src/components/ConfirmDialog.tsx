@@ -1,4 +1,4 @@
-import type { MouseEvent } from "react";
+import type { MouseEvent } from 'react';
 
 interface ConfirmDialogProps {
   title: string;
@@ -15,7 +15,7 @@ export default function ConfirmDialog({
   title,
   message,
   confirmLabel,
-  cancelLabel = "ביטול",
+  cancelLabel = 'ביטול',
   danger,
   error,
   onConfirm,
@@ -26,8 +26,15 @@ export default function ConfirmDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 px-4" onClick={onCancel}>
-      <div dir="rtl" className="w-full max-w-sm bg-white rounded-2xl shadow-xl p-6" onClick={stopPropagation}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 px-4"
+      onClick={onCancel}
+    >
+      <div
+        dir="rtl"
+        className="w-full max-w-sm bg-white rounded-2xl shadow-xl p-6"
+        onClick={stopPropagation}
+      >
         <h3 className="text-lg font-semibold text-slate-800 mb-2">{title}</h3>
         <p className="text-sm text-slate-500 mb-4">{message}</p>
 
@@ -45,7 +52,7 @@ export default function ConfirmDialog({
             type="button"
             onClick={onConfirm}
             className={`flex-1 text-white font-medium py-2.5 rounded-lg transition ${
-              danger ? "bg-red-600 hover:bg-red-700" : "bg-brand-600 hover:bg-brand-700"
+              danger ? 'bg-red-600 hover:bg-red-700' : 'bg-brand-600 hover:bg-brand-700'
             }`}
           >
             {confirmLabel}
