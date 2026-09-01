@@ -58,6 +58,10 @@ class Invoice(Base):
     amount: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     tax_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    # Invoice/receipt reference number as printed on the document. Best-effort OCR
+    # extraction - many receipts never print one, so this stays optional and is
+    # used only to key duplicate-upload detection when it is present.
+    invoice_number: Mapped[str | None] = mapped_column(String(100), nullable=True)
     category_id: Mapped[int | None] = mapped_column(ForeignKey("categories.id"), nullable=True)
     file_path: Mapped[str] = mapped_column(String(500), nullable=False)
 

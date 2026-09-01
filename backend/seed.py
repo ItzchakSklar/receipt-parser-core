@@ -8,11 +8,12 @@ import base64
 from datetime import date, timedelta
 
 from app.config import settings
-from app.database import Base, SessionLocal, engine
+from app.database import Base, SessionLocal, engine, ensure_schema
 from app.models import Business, Category, Invoice, User
 from app.security import hash_password
 
 Base.metadata.create_all(bind=engine)
+ensure_schema()
 
 # A tiny valid 1x1 PNG so seeded invoices have a real file on disk for the
 # receipt-preview feature (GET /api/invoices/{id}/file) to serve.

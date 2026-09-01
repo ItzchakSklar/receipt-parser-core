@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
@@ -67,6 +68,7 @@ class InvoiceOut(BaseModel):
     amount: float
     date: datetime
     tax_id: str | None
+    invoice_number: str | None = None
     category_id: int | None
     category_name: str | None = None
     file_path: str
@@ -80,6 +82,7 @@ class InvoiceUpdate(BaseModel):
     amount: float | None = Field(default=None, gt=0)
     date: datetime | None = None
     tax_id: str | None = None
+    invoice_number: str | None = None
     category_id: int | None = None
 
 
@@ -92,7 +95,22 @@ class InvoiceConfirmRequest(BaseModel):
     amount: float = Field(gt=0)
     date: datetime
     tax_id: str | None = None
+    invoice_number: str | None = None
     category_id: int | None = None
+
+
+class DuplicateResolutionRequest(BaseModel):
+    """Submitted after /upload returns 409 DUPLICATE_CONFLICT, to let the user pick
+    a side in the comparison modal instead of silently overwriting either record."""
+
+    action: Literal["keep_existing", "update_with_new"]
+    existing_invoice_id: int
+    file_reference: str
+    vendor_name: str = Field(min_length=1)
+    amount: float = Field(gt=0)
+    date: datetime
+    tax_id: str | None = None
+    invoice_number: str | None = None
 
 
 # ---------- Dashboard ----------

@@ -31,12 +31,37 @@ export interface Invoice {
   amount: number;
   date: string;
   tax_id: string | null;
+  invoice_number: string | null;
   category_id: number | null;
   category_name: string | null;
   file_path: string;
   ocr_source: "ocr" | "manual";
   uploaded_at_external_time: string;
   created_at: string;
+}
+
+/** The newly-extracted side of a DUPLICATE_CONFLICT response — not yet a saved
+ * invoice, just the OCR read plus a reference to the file already on disk. */
+export interface ExtractedReceiptData {
+  vendor_name: string;
+  amount: number;
+  date: string;
+  tax_id: string | null;
+  invoice_number: string | null;
+  file_reference: string;
+}
+
+export interface DuplicateExistsDetail {
+  error: "DUPLICATE_EXISTS";
+  message: string;
+  existing_invoice: Invoice;
+}
+
+export interface DuplicateConflictDetail {
+  error: "DUPLICATE_CONFLICT";
+  message: string;
+  existing_invoice: Invoice;
+  new_data: ExtractedReceiptData;
 }
 
 export interface MonthlyExportResponse {

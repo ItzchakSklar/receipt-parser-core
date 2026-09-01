@@ -108,6 +108,7 @@ export default function ReceiptLightboxModal({ invoice, onClose }: ReceiptLightb
             <MetaRow icon={<DollarSign size={16} />} label="Total" value={formatILS(invoice.amount)} />
             <MetaRow icon={<Calendar size={16} />} label="Date" value={new Date(invoice.date).toLocaleDateString()} />
             <MetaRow icon={<Hash size={16} />} label="Tax ID" value={invoice.tax_id ?? "—"} />
+            <MetaRow icon={<Hash size={16} />} label="Invoice #" value={invoice.invoice_number ?? "—"} />
             <MetaRow
               icon={<Store size={16} />}
               label="Category"

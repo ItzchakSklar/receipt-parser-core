@@ -4,7 +4,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
-from sqlalchemy import extract
+from sqlalchemy import extract, func
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -12,6 +12,7 @@ from app.database import get_db
 from app.dependencies import get_current_business_id
 from app.models import Business, Category, Invoice
 from app.schemas import (
+    DuplicateResolutionRequest,
     InvoiceConfirmRequest,
     InvoiceOut,
     InvoiceUpdate,
@@ -20,7 +21,7 @@ from app.schemas import (
 )
 from app.services.email_service import send_monthly_report
 from app.services.external_time_service import fetch_external_time, parse_external_datetime
-from app.services.ocr_service import OCRLowConfidenceError, parse_invoice
+from app.services.ocr_service import OCRLowConfidenceError, OCRResult, parse_invoice
 from app.services.report_service import build_monthly_csv, build_receipts_zip
 
 router = APIRouter(prefix="/api/invoices", tags=["invoices"])
@@ -29,6 +30,10 @@ logger = logging.getLogger("smartreceipt.invoices")
 
 ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp", "application/pdf"}
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
+
+# Tolerance for comparing OCR-read amounts against a previously stored value -
+# floats and repeated OCR passes can differ by fractions of a cent.
+AMOUNT_TOLERANCE = 0.01
 
 
 def _to_invoice_out(invoice: Invoice) -> InvoiceOut:
@@ -56,6 +61,121 @@ def _serialize_extracted(extracted: dict) -> dict:
     if "date" in serialized and hasattr(serialized["date"], "isoformat"):
         serialized["date"] = serialized["date"].isoformat()
     return serialized
+
+
+def _resolve_tenant_file(business_id: int, file_reference: str) -> Path:
+    """Validates that file_reference points at a real file inside this tenant's
+    upload folder - guards against path traversal / cross-tenant file references
+    for any endpoint that accepts a previously-saved upload back from the client."""
+    tenant_dir = (settings.upload_path / str(business_id)).resolve()
+    resolved_file = Path(file_reference).resolve()
+    if not resolved_file.is_relative_to(tenant_dir) or not resolved_file.is_file():
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown or inaccessible file_reference.")
+    return resolved_file
+
+
+def _find_potential_duplicate(
+    db: Session, business_id: int, vendor_name: str, invoice_number: str
+) -> Invoice | None:
+    """Looks up an existing invoice with the same vendor and invoice number for this
+    business. Matching is case/whitespace-insensitive since OCR reads of the same
+    printed text can vary in casing across two scans of the same receipt."""
+    return (
+        db.query(Invoice)
+        .filter(
+            Invoice.business_id == business_id,
+            Invoice.invoice_number.isnot(None),
+            func.lower(func.trim(Invoice.invoice_number)) == invoice_number.strip().lower(),
+            func.lower(func.trim(Invoice.vendor_name)) == vendor_name.strip().lower(),
+        )
+        .first()
+    )
+
+
+def _find_exact_match_by_tax_id(
+    db: Session, business_id: int, vendor_name: str, tax_id: str, amount: float, date_value
+) -> Invoice | None:
+    """Fallback duplicate signal for when no invoice number was extracted (or it
+    didn't match any existing record): same business, vendor and tax id, with an
+    identical amount and date, is treated as the same physical receipt scanned
+    twice. Only ever returns an exact match by construction - amount/date equality
+    is checked below - so callers never need to branch on conflict here. Amount and
+    date are compared in Python rather than in SQL since amount needs a tolerance
+    and Invoice.date is a datetime while date_value is a bare date."""
+    candidates = (
+        db.query(Invoice)
+        .filter(
+            Invoice.business_id == business_id,
+            Invoice.tax_id.isnot(None),
+            func.lower(func.trim(Invoice.tax_id)) == tax_id.strip().lower(),
+            func.lower(func.trim(Invoice.vendor_name)) == vendor_name.strip().lower(),
+        )
+        .all()
+    )
+    for candidate in candidates:
+        if abs(candidate.amount - amount) < AMOUNT_TOLERANCE and candidate.date.date() == date_value:
+            return candidate
+    return None
+
+
+def _is_exact_match(existing: Invoice, ocr_result: OCRResult) -> bool:
+    same_amount = abs(existing.amount - ocr_result.amount) < AMOUNT_TOLERANCE
+    same_date = existing.date.date() == ocr_result.date
+    return same_amount and same_date
+
+
+def _check_for_duplicate(db: Session, business_id: int, ocr_result: OCRResult, stored_path: Path) -> None:
+    """Raises 409 DUPLICATE_EXISTS or DUPLICATE_CONFLICT when this upload matches an
+    existing invoice. Vendor + invoice number is the primary key; when OCR couldn't
+    read an invoice number off this receipt (or it doesn't match anything), this
+    falls back to vendor + tax id with an identical amount and date, so a duplicate
+    upload of a receipt without a machine-readable invoice number still gets caught
+    instead of silently skipping the check altogether."""
+    duplicate: Invoice | None = None
+    matched_by_invoice_number = False
+
+    if ocr_result.invoice_number:
+        duplicate = _find_potential_duplicate(db, business_id, ocr_result.vendor_name, ocr_result.invoice_number)
+        matched_by_invoice_number = duplicate is not None
+
+    if duplicate is None and ocr_result.tax_id:
+        duplicate = _find_exact_match_by_tax_id(
+            db, business_id, ocr_result.vendor_name, ocr_result.tax_id, ocr_result.amount, ocr_result.date
+        )
+
+    if duplicate is None:
+        return
+
+    if matched_by_invoice_number and not _is_exact_match(duplicate, ocr_result):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail={
+                "error": "DUPLICATE_CONFLICT",
+                "message": "An invoice with this vendor and invoice number already exists with different data.",
+                "existing_invoice": _to_invoice_out(duplicate).model_dump(mode="json"),
+                "new_data": {
+                    "vendor_name": ocr_result.vendor_name,
+                    "amount": ocr_result.amount,
+                    "date": ocr_result.date.isoformat(),
+                    "tax_id": ocr_result.tax_id,
+                    "invoice_number": ocr_result.invoice_number,
+                    "file_reference": stored_path.as_posix(),
+                },
+            },
+        )
+
+    # Either matched by invoice number with identical data, or matched via the
+    # tax-id fallback (which by construction already requires identical amount/date).
+    # Either way, nothing new to keep - reject outright and don't leave an orphaned file.
+    stored_path.unlink(missing_ok=True)
+    raise HTTPException(
+        status.HTTP_409_CONFLICT,
+        detail={
+            "error": "DUPLICATE_EXISTS",
+            "message": "This receipt is already uploaded to the system.",
+            "existing_invoice": _to_invoice_out(duplicate).model_dump(mode="json"),
+        },
+    )
 
 
 @router.post("/upload", response_model=InvoiceOut, status_code=status.HTTP_201_CREATED)
@@ -105,6 +225,8 @@ async def upload_invoice(
             },
         )
 
+    _check_for_duplicate(db, business_id, ocr_result, stored_path)
+
     external_time = await fetch_external_time()
     uploaded_at_external_time = parse_external_datetime(external_time)
     category = _get_or_create_uncategorized(db, business_id)
@@ -115,6 +237,7 @@ async def upload_invoice(
         amount=ocr_result.amount,
         date=ocr_result.date,
         tax_id=ocr_result.tax_id,
+        invoice_number=ocr_result.invoice_number,
         category_id=category.id,
         file_path=stored_path.as_posix(),
         ocr_source="ocr",
@@ -137,10 +260,7 @@ async def confirm_invoice(
     INVALID_OCR_DATA. The referenced file must already sit inside this tenant's
     upload folder (written by /upload) - guards against path traversal / cross-tenant
     file references."""
-    tenant_dir = (settings.upload_path / str(business_id)).resolve()
-    resolved_file = Path(payload.file_reference).resolve()
-    if not resolved_file.is_relative_to(tenant_dir) or not resolved_file.is_file():
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown or inaccessible file_reference.")
+    _resolve_tenant_file(business_id, payload.file_reference)
 
     if payload.category_id is not None:
         category = db.get(Category, payload.category_id)
@@ -158,6 +278,7 @@ async def confirm_invoice(
         amount=payload.amount,
         date=payload.date,
         tax_id=payload.tax_id,
+        invoice_number=payload.invoice_number,
         category_id=category.id,
         file_path=payload.file_reference,
         ocr_source="manual",
@@ -168,6 +289,65 @@ async def confirm_invoice(
     db.refresh(invoice)
 
     return _to_invoice_out(invoice)
+
+
+@router.get("/file-preview")
+def get_file_preview(
+    file_reference: str,
+    business_id: int = Depends(get_current_business_id),
+):
+    """Serves a not-yet-confirmed upload (a file already saved to disk by /upload
+    but not yet linked to any invoice row) so the conflict-resolution modal can
+    render the newly-uploaded image before the user decides whether to keep it."""
+    file_path = _resolve_tenant_file(business_id, file_reference)
+    return FileResponse(file_path)
+
+
+@router.post("/resolve-conflict", response_model=InvoiceOut)
+async def resolve_conflict(
+    payload: DuplicateResolutionRequest,
+    business_id: int = Depends(get_current_business_id),
+    db: Session = Depends(get_db),
+):
+    """Finalizes the user's choice after /upload returned 409 DUPLICATE_CONFLICT:
+    either discard the new upload and keep the existing invoice untouched, or
+    overwrite the existing invoice with the newly uploaded file and its data."""
+    new_file = _resolve_tenant_file(business_id, payload.file_reference)
+
+    existing = (
+        db.query(Invoice)
+        .filter(Invoice.id == payload.existing_invoice_id, Invoice.business_id == business_id)
+        .first()
+    )
+    if existing is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Existing invoice not found.")
+
+    if payload.action == "keep_existing":
+        new_file.unlink(missing_ok=True)
+        return _to_invoice_out(existing)
+
+    # action == "update_with_new": overwrite the existing record and drop its old file.
+    old_file = Path(existing.file_path)
+    external_time = await fetch_external_time()
+
+    existing.vendor_name = payload.vendor_name
+    existing.amount = payload.amount
+    existing.date = payload.date
+    existing.tax_id = payload.tax_id
+    existing.invoice_number = payload.invoice_number
+    existing.file_path = new_file.as_posix()
+    existing.ocr_source = "ocr"
+    existing.uploaded_at_external_time = parse_external_datetime(external_time)
+    db.commit()
+    db.refresh(existing)
+
+    if old_file != new_file and old_file.is_file():
+        try:
+            old_file.unlink()
+        except OSError:
+            pass
+
+    return _to_invoice_out(existing)
 
 
 @router.post("/export-monthly", response_model=MonthlyExportResponse)

@@ -7,12 +7,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.config import settings
-from app.database import Base, engine
+from app.database import Base, engine, ensure_schema
 from app.routers import auth, categories, dashboard, invoices, system
 
 logger = logging.getLogger("smartreceipt.validation")
 
 Base.metadata.create_all(bind=engine)
+ensure_schema()
 
 app = FastAPI(
     title="SmartReceipt API",

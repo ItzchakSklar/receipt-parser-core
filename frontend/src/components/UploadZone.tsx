@@ -1,8 +1,9 @@
-import { CheckCircle2, Camera, FileText, Loader2, UploadCloud, XCircle } from "lucide-react";
+import { CheckCircle2, Camera, FileText, Info, Loader2, UploadCloud, XCircle } from "lucide-react";
 import { useCallback, useRef, useState, type DragEvent } from "react";
 
 import { api } from "../api/client";
-import type { Invoice } from "../types";
+import type { DuplicateConflictDetail, Invoice } from "../types";
+import ConflictResolutionModal from "./ConflictResolutionModal";
 
 interface UploadZoneProps {
   onUploaded: (invoice: Invoice) => void;
@@ -10,12 +11,13 @@ interface UploadZoneProps {
 
 const ACCEPTED_TYPES = ["image/jpeg", "image/png", "image/webp", "application/pdf"];
 
-type UploadState = "idle" | "uploading" | "success" | "error" | "unclear";
+type UploadState = "idle" | "uploading" | "success" | "error" | "unclear" | "duplicate";
 
 export default function UploadZone({ onUploaded }: UploadZoneProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [state, setState] = useState<UploadState>("idle");
   const [message, setMessage] = useState<string | null>(null);
+  const [conflict, setConflict] = useState<DuplicateConflictDetail | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const handleFiles = useCallback(async (files: FileList | null) => {
@@ -53,10 +55,56 @@ export default function UploadZone({ onUploaded }: UploadZoneProps) {
         setMessage(null);
         return;
       }
+      if (err?.response?.status === 409 && detail?.error === "DUPLICATE_EXISTS") {
+        setState("duplicate");
+        setMessage(null);
+        return;
+      }
+      if (err?.response?.status === 409 && detail?.error === "DUPLICATE_CONFLICT") {
+        setState("idle");
+        setMessage(null);
+        setConflict(detail as DuplicateConflictDetail);
+        return;
+      }
       setState("error");
       setMessage(typeof detail === "string" ? detail : "Upload failed. Please try again.");
     }
   }, [onUploaded]);
+
+  function handleConflictResolved({ action, invoice }: { action: "keep_existing" | "update_with_new"; invoice: Invoice }) {
+    setConflict(null);
+    if (action === "keep_existing") {
+      setState("idle");
+      setMessage(null);
+      return;
+    }
+    setState("success");
+    setMessage(`Updated: ${invoice.vendor_name} — ${invoice.amount.toFixed(2)}`);
+    onUploaded(invoice);
+  }
+
+  async function resolveConflictAsKeepExisting() {
+    if (!conflict) return;
+    try {
+      await api.post("/invoices/resolve-conflict", {
+        action: "keep_existing",
+        existing_invoice_id: conflict.existing_invoice.id,
+        file_reference: conflict.new_data.file_reference,
+        vendor_name: conflict.new_data.vendor_name,
+        amount: conflict.new_data.amount,
+        date: conflict.new_data.date,
+        tax_id: conflict.new_data.tax_id,
+        invoice_number: conflict.new_data.invoice_number,
+      });
+    } catch {
+      // Best-effort cleanup — a leftover file on disk is a cleanup miss, not a
+      // data-integrity issue, since the existing invoice was never touched.
+    } finally {
+      setConflict(null);
+      setState("idle");
+      setMessage(null);
+    }
+  }
 
   function handleDrop(e: DragEvent<HTMLDivElement>) {
     e.preventDefault();
@@ -138,10 +186,39 @@ export default function UploadZone({ onUploaded }: UploadZoneProps) {
         </div>
       )}
 
+      {state === "duplicate" && (
+        <div dir="rtl" className="mt-4 flex flex-col items-center gap-3 rounded-lg bg-blue-50 border border-blue-200 px-4 py-4 text-center">
+          <p className="flex items-center gap-2 text-sm font-medium text-blue-800">
+            <Info size={16} className="shrink-0" />
+            החשבונית הזו כבר קיימת במערכת.
+          </p>
+          <button
+            type="button"
+            onClick={handleRetry}
+            className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition"
+          >
+            <Camera size={16} />
+            העלה קובץ אחר
+          </button>
+        </div>
+      )}
+
       <div className="mt-4 flex items-center gap-2 text-xs text-slate-400">
         <FileText size={14} />
         <span>Vendor, total, and date are extracted automatically. Category defaults to Uncategorized.</span>
       </div>
+
+      {conflict && (
+        <ConflictResolutionModal
+          conflict={conflict}
+          onResolved={handleConflictResolved}
+          onClose={() => {
+            // Closing without a choice defaults to keeping the existing record, so
+            // the newly-uploaded file never sits around unresolved.
+            resolveConflictAsKeepExisting();
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -20,6 +20,19 @@ CONFIDENCE_THRESHOLD = 60.0  # percent; below this an OCR engine's read is not t
 TAX_ID_PATTERN = re.compile(r"\b\d{9}\b")
 DATE_PATTERN = re.compile(r"\b(\d{1,2})[/.\-](\d{1,2})[/.\-](\d{2,4})\b")
 
+# Invoice/receipt reference number as printed on the document, e.g. "Invoice No: 4471",
+# "Receipt # A-2024-01", "מספר חשבונית: 4471", "חשבונית מס' 4471". Best-effort only -
+# not in REQUIRED_FIELDS since many receipts never print one; duplicate detection
+# simply skips when it's absent rather than fabricating a key to match on. The
+# captured value must contain a digit - real invoice numbers always do, and without
+# that constraint a stray phrase like "...invoice number here" would match the label
+# and capture the next unrelated word ("here") as a fabricated number.
+INVOICE_NUMBER_PATTERN = re.compile(
+    r'(?:Invoice\s*(?:No\.?|Number|#)|Receipt\s*(?:No\.?|Number|#)|'
+    r'מספר\s*חשבונית|חשבונית\s*מס\'?|אסמכתא)\s*[:\-=]?\s*([A-Za-z0-9\-/]*\d[A-Za-z0-9\-/]{0,29})',
+    re.IGNORECASE,
+)
+
 # Currency-aware amount, e.g. "ILS 18,427.50", "₪18427.5", "$120".
 _AMOUNT_PATTERNS_BY_PRIORITY = (
     # Tier 1: the actual amount due - always preferred when present. \s* (not \D)
@@ -92,6 +105,7 @@ class OCRResult:
     tax_id: str
     raw_text: str
     engine: str
+    invoice_number: str | None = None
 
 
 @dataclass
@@ -127,6 +141,10 @@ def _extract_candidate_fields(text: str) -> dict:
     if tax_match:
         candidate["tax_id"] = tax_match.group(0)
 
+    invoice_number_match = INVOICE_NUMBER_PATTERN.search(text)
+    if invoice_number_match:
+        candidate["invoice_number"] = invoice_number_match.group(1).strip()
+
     amount = parse_total_amount(text)
     print(f"[ocr_service] raw_ocr_text={text!r}")
     print(f"[ocr_service] extracted_total={amount!r}")
@@ -157,6 +175,7 @@ def _candidate_to_result(candidate: dict, text: str, engine: str) -> OCRResult:
         tax_id=candidate["tax_id"],
         raw_text=text,
         engine=engine,
+        invoice_number=candidate.get("invoice_number"),
     )
 
 
