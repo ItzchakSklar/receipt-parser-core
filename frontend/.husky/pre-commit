@@ -1,2 +1,12 @@
 #!/usr/bin/env sh
+set -e
+
 cd frontend && pnpm exec lint-staged
+cd ..
+
+STAGED_PY=$(git diff --cached --name-only --diff-filter=ACM -- '*.py')
+if [ -n "$STAGED_PY" ]; then
+  echo "$STAGED_PY" | xargs backend/.venv/Scripts/ruff.exe format
+  echo "$STAGED_PY" | xargs backend/.venv/Scripts/ruff.exe check --fix
+  echo "$STAGED_PY" | xargs git add
+fi
