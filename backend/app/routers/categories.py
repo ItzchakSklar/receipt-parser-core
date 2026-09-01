@@ -14,7 +14,9 @@ def list_categories(
     business_id: int = Depends(get_current_business_id),
     db: Session = Depends(get_db),
 ):
-    return db.query(Category).filter(Category.business_id == business_id).order_by(Category.name).all()
+    return (
+        db.query(Category).filter(Category.business_id == business_id).order_by(Category.name).all()
+    )
 
 
 @router.post("", response_model=CategoryOut, status_code=201)

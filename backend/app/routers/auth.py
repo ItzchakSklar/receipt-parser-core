@@ -8,7 +8,13 @@ from app.security import create_access_token, hash_password, verify_password
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
-_DEFAULT_CATEGORIES = ["Office Supplies", "Travel", "Utilities", "Meals & Entertainment", "Software & Subscriptions"]
+_DEFAULT_CATEGORIES = [
+    "Office Supplies",
+    "Travel",
+    "Utilities",
+    "Meals & Entertainment",
+    "Software & Subscriptions",
+]
 
 
 @router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)

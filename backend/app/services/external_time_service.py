@@ -5,7 +5,7 @@ Falls back to local UTC time (clearly flagged via `source: "local_fallback"`) if
 external API is unreachable, so the app keeps working offline / in restricted networks.
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import httpx
 
@@ -28,7 +28,7 @@ async def fetch_external_time() -> ExternalTime:
                 source="worldtimeapi",
             )
     except (httpx.HTTPError, KeyError, ValueError):
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         return ExternalTime(
             datetime=now.isoformat(),
             timezone="UTC",
@@ -42,4 +42,4 @@ def parse_external_datetime(external_time: ExternalTime) -> datetime:
     try:
         return datetime.fromisoformat(external_time.datetime)
     except ValueError:
-        return datetime.now(timezone.utc)
+        return datetime.now(UTC)

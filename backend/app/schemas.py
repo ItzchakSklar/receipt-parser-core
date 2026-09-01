@@ -3,8 +3,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
-
 # ---------- Auth / Business / User ----------
+
 
 class BusinessCreate(BaseModel):
     name: str
@@ -47,6 +47,7 @@ class TokenResponse(BaseModel):
 
 # ---------- Category ----------
 
+
 class CategoryCreate(BaseModel):
     name: str
 
@@ -59,6 +60,7 @@ class CategoryOut(BaseModel):
 
 
 # ---------- Invoice ----------
+
 
 class InvoiceOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -115,6 +117,7 @@ class DuplicateResolutionRequest(BaseModel):
 
 # ---------- Dashboard ----------
 
+
 class CategoryBreakdown(BaseModel):
     category_id: int | None
     category_name: str
@@ -137,6 +140,7 @@ class DashboardStats(BaseModel):
 
 # ---------- Monthly export ----------
 
+
 class MonthlyExportRequest(BaseModel):
     email: EmailStr
     month: int = Field(ge=1, le=12)
@@ -152,6 +156,7 @@ class MonthlyExportResponse(BaseModel):
 
 
 # ---------- External time ----------
+
 
 class ExternalTime(BaseModel):
     datetime: str

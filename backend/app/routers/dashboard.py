@@ -28,7 +28,9 @@ def get_dashboard_stats(
         category_totals[inv.category_id] += inv.amount
         category_counts[inv.category_id] += 1
 
-    categories = {c.id: c.name for c in db.query(Category).filter(Category.business_id == business_id).all()}
+    categories = {
+        c.id: c.name for c in db.query(Category).filter(Category.business_id == business_id).all()
+    }
 
     category_breakdown = [
         CategoryBreakdown(
@@ -37,7 +39,9 @@ def get_dashboard_stats(
             total=round(total, 2),
             count=category_counts[category_id],
         )
-        for category_id, total in sorted(category_totals.items(), key=lambda kv: kv[1], reverse=True)
+        for category_id, total in sorted(
+            category_totals.items(), key=lambda kv: kv[1], reverse=True
+        )
     ]
 
     monthly_totals_map: dict[str, float] = defaultdict(float)

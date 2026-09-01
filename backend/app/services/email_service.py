@@ -4,7 +4,7 @@ fully testable without a real mail server - mirroring the WorldTimeAPI/OCR fallb
 pattern used elsewhere in this app."""
 
 import smtplib
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from email.message import EmailMessage
 
 from app.config import settings
@@ -36,11 +36,14 @@ def send_monthly_report(
         csv_bytes, maintype="text", subtype="csv", filename=f"expenses-{year}-{month:02d}.csv"
     )
     message.add_attachment(
-        zip_bytes, maintype="application", subtype="zip", filename=f"receipts-{year}-{month:02d}.zip"
+        zip_bytes,
+        maintype="application",
+        subtype="zip",
+        filename=f"receipts-{year}-{month:02d}.zip",
     )
 
     if not settings.smtp_configured:
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
+        timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
         safe_email = to_email.replace("@", "_at_").replace("/", "_")
         out_path = settings.sent_email_path / f"{timestamp}-{safe_email}.eml"
         out_path.write_bytes(bytes(message))

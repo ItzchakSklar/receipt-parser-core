@@ -44,6 +44,7 @@ async def log_validation_errors(request: Request, exc: RequestValidationError) -
         content=jsonable_encoder({"detail": exc.errors()}),
     )
 
+
 app.include_router(auth.router)
 app.include_router(categories.router)
 app.include_router(invoices.router)

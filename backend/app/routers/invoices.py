@@ -1,3 +1,4 @@
+import contextlib
 import logging
 import uuid
 from pathlib import Path
@@ -113,7 +114,10 @@ def _find_exact_match_by_tax_id(
         .all()
     )
     for candidate in candidates:
-        if abs(candidate.amount - amount) < AMOUNT_TOLERANCE and candidate.date.date() == date_value:
+        if (
+            abs(candidate.amount - amount) < AMOUNT_TOLERANCE
+            and candidate.date.date() == date_value
+        ):
             return candidate
     return None
 
@@ -124,7 +128,9 @@ def _is_exact_match(existing: Invoice, ocr_result: OCRResult) -> bool:
     return same_amount and same_date
 
 
-def _check_for_duplicate(db: Session, business_id: int, ocr_result: OCRResult, stored_path: Path) -> None:
+def _check_for_duplicate(
+    db: Session, business_id: int, ocr_result: OCRResult, stored_path: Path
+) -> None:
     """Raises 409 DUPLICATE_EXISTS or DUPLICATE_CONFLICT when this upload matches an
     existing invoice. Vendor + invoice number is the primary key; when OCR couldn't
     read an invoice number off this receipt (or it doesn't match anything), this
@@ -135,12 +141,19 @@ def _check_for_duplicate(db: Session, business_id: int, ocr_result: OCRResult, s
     matched_by_invoice_number = False
 
     if ocr_result.invoice_number:
-        duplicate = _find_potential_duplicate(db, business_id, ocr_result.vendor_name, ocr_result.invoice_number)
+        duplicate = _find_potential_duplicate(
+            db, business_id, ocr_result.vendor_name, ocr_result.invoice_number
+        )
         matched_by_invoice_number = duplicate is not None
 
     if duplicate is None and ocr_result.tax_id:
         duplicate = _find_exact_match_by_tax_id(
-            db, business_id, ocr_result.vendor_name, ocr_result.tax_id, ocr_result.amount, ocr_result.date
+            db,
+            business_id,
+            ocr_result.vendor_name,
+            ocr_result.tax_id,
+            ocr_result.amount,
+            ocr_result.date,
         )
 
     if duplicate is None:
@@ -185,7 +198,9 @@ async def upload_invoice(
     db: Session = Depends(get_db),
 ):
     if file.content_type not in ALLOWED_CONTENT_TYPES:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unsupported file type. Use JPEG, PNG, WEBP or PDF.")
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "Unsupported file type. Use JPEG, PNG, WEBP or PDF."
+        )
 
     file_bytes = await file.read()
     if len(file_bytes) > MAX_UPLOAD_BYTES:
@@ -223,7 +238,7 @@ async def upload_invoice(
                 "extracted": _serialize_extracted(info.extracted),
                 "file_reference": stored_path.as_posix(),
             },
-        )
+        ) from exc
 
     _check_for_duplicate(db, business_id, ocr_result, stored_path)
 
@@ -342,10 +357,8 @@ async def resolve_conflict(
     db.refresh(existing)
 
     if old_file != new_file and old_file.is_file():
-        try:
+        with contextlib.suppress(OSError):
             old_file.unlink()
-        except OSError:
-            pass
 
     return _to_invoice_out(existing)
 
@@ -502,7 +515,5 @@ def delete_invoice(
     # Best-effort: the DB row is already gone, which is the source of truth for the
     # UI, so a stray file on disk is a cleanup miss rather than a data-integrity issue.
     if file_path.is_file():
-        try:
+        with contextlib.suppress(OSError):
             file_path.unlink()
-        except OSError:
-            pass

@@ -12,6 +12,7 @@ returning fabricated data - callers must ask the user to re-upload a clearer fil
 confirm the fields manually.
 """
 
+import contextlib
 import os
 import re
 import tempfile
@@ -34,8 +35,8 @@ DATE_PATTERN = re.compile(r"\b(\d{1,2})[/.\-](\d{1,2})[/.\-](\d{2,4})\b")
 # that constraint a stray phrase like "...invoice number here" would match the label
 # and capture the next unrelated word ("here") as a fabricated number.
 INVOICE_NUMBER_PATTERN = re.compile(
-    r'(?:Invoice\s*(?:No\.?|Number|#)|Receipt\s*(?:No\.?|Number|#)|'
-    r'מספר\s*חשבונית|חשבונית\s*מס\'?|אסמכתא)\s*[:\-=]?\s*([A-Za-z0-9\-/]*\d[A-Za-z0-9\-/]{0,29})',
+    r"(?:Invoice\s*(?:No\.?|Number|#)|Receipt\s*(?:No\.?|Number|#)|"
+    r"מספר\s*חשבונית|חשבונית\s*מס\'?|אסמכתא)\s*[:\-=]?\s*([A-Za-z0-9\-/]*\d[A-Za-z0-9\-/]{0,29})",
     re.IGNORECASE,
 )
 
@@ -51,12 +52,12 @@ _AMOUNT_PATTERNS_BY_PRIORITY = (
     # Tier 2: generic total anchors. (?<!Sub)\bTotal\b deliberately excludes
     # "Subtotal" so this tier can't accidentally pick up a subtotal line.
     re.compile(
-        r'(?<!Sub)\bTotal\b\s*[:\-=]?\s*(?:ILS|₪|\$)?\s*([\d,]+\.?\d*)',
+        r"(?<!Sub)\bTotal\b\s*[:\-=]?\s*(?:ILS|₪|\$)?\s*([\d,]+\.?\d*)",
         re.IGNORECASE | re.MULTILINE,
     ),
     # Tier 3: last-resort fallback, only used when no total anchor was found at all.
     re.compile(
-        r'Subtotal\s*[:\-=]?\s*(?:ILS|₪|\$)?\s*([\d,]+\.?\d*)',
+        r"Subtotal\s*[:\-=]?\s*(?:ILS|₪|\$)?\s*([\d,]+\.?\d*)",
         re.IGNORECASE | re.MULTILINE,
     ),
 )
@@ -87,7 +88,7 @@ def parse_total_amount(text: str) -> float | None:
                 return val
 
     lines = text.strip().split("\n")
-    bottom_text = " ".join(lines[-max(1, int(len(lines) * 0.4)):])
+    bottom_text = " ".join(lines[-max(1, int(len(lines) * 0.4)) :])
     all_numbers = re.findall(r"[\d,]+\.\d{2}", bottom_text)
     if all_numbers:
         return max(float(n.replace(",", "")) for n in all_numbers)
@@ -123,7 +124,9 @@ class LowConfidenceInfo:
 
     @property
     def message(self) -> str:
-        base = _ERROR_MESSAGES.get(self.reason, "Could not automatically extract data from this receipt.")
+        base = _ERROR_MESSAGES.get(
+            self.reason, "Could not automatically extract data from this receipt."
+        )
         return f"{base} Please re-upload a clearer image/PDF or confirm the fields manually."
 
 
@@ -161,10 +164,8 @@ def _extract_candidate_fields(text: str) -> dict:
     if date_match:
         day, month, year = date_match.groups()
         year_int = int(year) if len(year) == 4 else 2000 + int(year)
-        try:
+        with contextlib.suppress(ValueError):
             candidate["date"] = date(year_int, int(month), int(day))
-        except ValueError:
-            pass
 
     return candidate
 
@@ -202,7 +203,9 @@ _PDF_RENDER_DPI = 200
 # non-ASCII character anywhere in the path (this repo itself is checked out under a
 # Hebrew-named folder) makes it fail to find the language files at all. Falls back to
 # English-only if the language pack hasn't been fetched.
-_TESSDATA_DIR = Path(os.environ.get("LOCALAPPDATA", tempfile.gettempdir())) / "SmartReceipt" / "tessdata"
+_TESSDATA_DIR = (
+    Path(os.environ.get("LOCALAPPDATA", tempfile.gettempdir())) / "SmartReceipt" / "tessdata"
+)
 if (_TESSDATA_DIR / "heb.traineddata").is_file() and (_TESSDATA_DIR / "eng.traineddata").is_file():
     _TESSERACT_LANG = "heb+eng"
     # No surrounding quotes: pytesseract passes this through shlex.split() and then
@@ -273,9 +276,14 @@ def _try_tesseract(images: list) -> tuple[OCRResult | None, LowConfidenceInfo | 
         page_texts = []
         confidences: list[int] = []
         for image in images:
-            page_texts.append(pytesseract.image_to_string(image, lang=_TESSERACT_LANG, config=_TESSERACT_CONFIG))
+            page_texts.append(
+                pytesseract.image_to_string(image, lang=_TESSERACT_LANG, config=_TESSERACT_CONFIG)
+            )
             data = pytesseract.image_to_data(
-                image, lang=_TESSERACT_LANG, config=_TESSERACT_CONFIG, output_type=pytesseract.Output.DICT
+                image,
+                lang=_TESSERACT_LANG,
+                config=_TESSERACT_CONFIG,
+                output_type=pytesseract.Output.DICT,
             )
             confidences.extend(
                 int(c) for c in data.get("conf", []) if str(c).lstrip("-").isdigit() and int(c) >= 0
@@ -290,7 +298,9 @@ def _try_tesseract(images: list) -> tuple[OCRResult | None, LowConfidenceInfo | 
             return _candidate_to_result(candidate, text, engine="tesseract"), None
 
         reason = "low_confidence" if avg_confidence < CONFIDENCE_THRESHOLD else "missing_fields"
-        return None, LowConfidenceInfo(reason=reason, engine="tesseract", extracted=candidate, missing_fields=missing)
+        return None, LowConfidenceInfo(
+            reason=reason, engine="tesseract", extracted=candidate, missing_fields=missing
+        )
     except Exception:
         return None, LowConfidenceInfo(reason="engine_error", engine="tesseract")
 
@@ -320,7 +330,9 @@ def _try_easyocr(images: list) -> tuple[OCRResult | None, LowConfidenceInfo | No
             return _candidate_to_result(candidate, text, engine="easyocr"), None
 
         reason = "low_confidence" if avg_confidence < CONFIDENCE_THRESHOLD else "missing_fields"
-        return None, LowConfidenceInfo(reason=reason, engine="easyocr", extracted=candidate, missing_fields=missing)
+        return None, LowConfidenceInfo(
+            reason=reason, engine="easyocr", extracted=candidate, missing_fields=missing
+        )
     except Exception:
         return None, LowConfidenceInfo(reason="engine_error", engine="easyocr")
 
