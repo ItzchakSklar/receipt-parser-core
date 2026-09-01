@@ -2,7 +2,7 @@ import { useState } from "react";
 
 import Dashboard from "./components/Dashboard";
 import Header, { type TabId } from "./components/Header";
-import InvoiceList from "./components/InvoiceList";
+import InvoiceExplorer from "./components/InvoiceExplorer";
 import LoginForm from "./components/LoginForm";
 import UploadZone from "./components/UploadZone";
 import { useAuth } from "./context/AuthContext";
@@ -34,7 +34,7 @@ export default function App() {
           </div>
         )}
 
-        {activeTab === "invoices" && <InvoiceList refreshKey={refreshKey} />}
+        {activeTab === "invoices" && <InvoiceExplorer refreshKey={refreshKey} />}
       </main>
     </div>
   );
