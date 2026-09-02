@@ -24,4 +24,6 @@ COPY . .
 RUN mkdir -p uploads sent_emails
 
 EXPOSE 8000
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Shell form (not exec-form array) so $PORT - injected by Render at runtime - is
+# actually substituted; falls back to 8000 for `docker run` without PORT set.
+CMD uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}

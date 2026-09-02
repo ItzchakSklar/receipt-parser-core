@@ -252,3 +252,70 @@ docker compose up --build
 This builds `backend/Dockerfile` and `frontend/Dockerfile` locally and serves the
 frontend (nginx, reverse-proxying `/api` to the backend container) on
 `http://localhost`, with the backend on `http://localhost:8000`.
+
+## Deploying to Render + Vercel (Free Tier)
+
+Unlike the GitHub Actions/GHCR/self-hosted-server path above, this deploys the
+backend to **Render** and the frontend to **Vercel** directly from GitHub - both
+have a free tier and neither needs the `.github/workflows/deploy.yml` pipeline
+(each platform builds on its own when you push to `main`).
+
+> **Storage caveat:** Render's free web services use an ephemeral filesystem - the
+> SQLite file (`smartreceipt.db`) and everything under `uploads/` are wiped on every
+> deploy, and on every restart after 15 minutes of inactivity (free services sleep
+> and cold-start on the next request). This is fine for a demo/trial, but for
+> anything real either upgrade to a Render paid plan with a
+> [persistent disk](https://render.com/docs/disks) mounted at `/app` (or wherever
+> `UPLOAD_DIR`/`DATABASE_URL` point), or move to Render's free Postgres + an
+> external object store (S3-compatible) instead of SQLite + local disk.
+
+### 1. Backend on Render
+
+1. Push this repo to GitHub (Render deploys straight from a GitHub connection, no
+   registry involved).
+2. In the [Render dashboard](https://dashboard.render.com/), click **New >
+   Web Service**.
+3. **Connect a repository**: authorize Render's GitHub app if you haven't already,
+   then pick this repo.
+4. Configure the service:
+   - **Root Directory**: `backend`
+   - **Runtime**: `Docker` (Render detects `backend/Dockerfile` automatically)
+   - **Instance Type**: `Free`
+5. Under **Environment** (or **Advanced > Environment Variables**), add:
+   - `SECRET_KEY` - a real random secret (not the placeholder default)
+   - `CORS_ORIGINS` - `http://localhost:5173,http://127.0.0.1:5173` (leave as-is;
+     the deployed frontend origin goes in `FRONTEND_URL` below)
+   - `FRONTEND_URL` - leave blank for now; you'll set this after step 2 below once
+     the Vercel URL exists
+   - Do **not** set `PORT` - Render injects it automatically and
+     `backend/Dockerfile`'s `CMD` and `app/main.py` both already read it
+6. Click **Create Web Service**. Render builds the Dockerfile and gives you a URL
+   like `https://smartreceipt-backend.onrender.com` - copy it, you'll need it for
+   the frontend. Check `https://<that-url>/api/health` returns `{"status": "ok"}`.
+
+### 2. Frontend on Vercel
+
+1. In the [Vercel dashboard](https://vercel.com/dashboard), click **Add New >
+   Project**.
+2. **Import Git Repository**: authorize Vercel's GitHub app if needed, then select
+   this repo.
+3. Configure the project:
+   - **Framework Preset**: Vite (Vercel should auto-detect this)
+   - **Root Directory**: `frontend` (click **Edit** next to Root Directory to set it)
+4. Under **Environment Variables**, add:
+   - `VITE_API_BASE_URL` = `https://<your-render-backend>.onrender.com/api` (the
+     URL from step 1.6, with `/api` appended)
+5. Click **Deploy**. Vercel builds with `pnpm build` and serves `frontend/dist`;
+   `frontend/vercel.json` (already in the repo) rewrites every route to
+   `index.html` so refreshing a client-side route (e.g. `/dashboard`) doesn't 404.
+6. Copy the resulting URL (e.g. `https://smartreceipt.vercel.app`).
+
+### 3. Close the loop: allow the frontend's origin in CORS
+
+Go back to the Render service (**Environment** tab), set `FRONTEND_URL` to the
+Vercel URL from step 2.6, and save - Render redeploys automatically. Without this,
+the browser blocks every API call from the deployed frontend with a CORS error even
+though the backend itself is reachable.
+
+Both platforms redeploy automatically on every push to `main` once connected - no
+further setup needed for continuous deployment.

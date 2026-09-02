@@ -18,7 +18,15 @@ class Settings(BaseSettings):
 
     upload_dir: str = "./uploads"
 
+    # Render injects PORT at runtime with the port the service must bind to;
+    # the 8000 default only applies to local dev (see app/main.py's __main__ block).
+    port: int = 8000
+
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
+    # Single deployed frontend origin (e.g. the Vercel URL), added to cors_origins
+    # below - kept separate so it can be set as one env var without having to
+    # re-list the local-dev origins alongside it.
+    frontend_url: str = ""
 
     # SMTP is optional. When smtp_host is empty, monthly reports are written to
     # sent_email_dir instead of actually being emailed (dev-friendly mock mode).
@@ -32,7 +40,10 @@ class Settings(BaseSettings):
 
     @property
     def cors_origin_list(self) -> list[str]:
-        return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+        origins = [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+        if self.frontend_url and self.frontend_url not in origins:
+            origins.append(self.frontend_url)
+        return origins
 
     @property
     def upload_path(self) -> Path:
