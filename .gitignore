@@ -17,6 +17,9 @@ frontend/*.tsbuildinfo
 frontend/vite.config.js
 frontend/vite.config.d.ts
 
+# Docker Compose (secrets for local/server deployment - see .env.example)
+/.env
+
 # Editors / OS
 .vscode/
 .DS_Store
