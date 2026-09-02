@@ -75,6 +75,7 @@ class InvoiceOut(BaseModel):
     category_name: str | None = None
     file_path: str
     ocr_source: str
+    is_unrecognized: bool
     uploaded_at_external_time: datetime
     created_at: datetime
 
@@ -93,6 +94,19 @@ class InvoiceConfirmRequest(BaseModel):
     finalize the invoice with user-confirmed, non-fabricated data."""
 
     file_reference: str
+    vendor_name: str = Field(min_length=1)
+    amount: float = Field(gt=0)
+    date: datetime
+    tax_id: str | None = None
+    invoice_number: str | None = None
+    category_id: int | None = None
+
+
+class UnrecognizedSortRequest(BaseModel):
+    """Submitted from the "לא מזוהים" folder's review modal to manually confirm the
+    real fields for a receipt OCR could not read, moving it into its proper
+    Year/Month folder."""
+
     vendor_name: str = Field(min_length=1)
     amount: float = Field(gt=0)
     date: datetime

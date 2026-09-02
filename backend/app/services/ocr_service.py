@@ -155,8 +155,6 @@ def _extract_candidate_fields(text: str) -> dict:
         candidate["invoice_number"] = invoice_number_match.group(1).strip()
 
     amount = parse_total_amount(text)
-    print(f"[ocr_service] raw_ocr_text={text!r}")
-    print(f"[ocr_service] extracted_total={amount!r}")
     if amount is not None:
         candidate["amount"] = amount
 
@@ -192,6 +190,29 @@ _WINDOWS_TESSERACT_FALLBACK = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 # font sizes; the PDF equivalent of "photograph the receipt at a decent resolution".
 _PDF_RENDER_DPI = 200
 
+# A4 long edge at _PDF_RENDER_DPI (11.69in * 200dpi ~= 2338px) - the pixel density a PDF
+# page always gets. A photographed/screenshotted/scanned receipt image can arrive far
+# below that (a low-res scan of a dense Hebrew line-item table can be as small as
+# ~460x400px, i.e. ~35 effective DPI for a full page), which starves Tesseract of the
+# pixel density it needs and produces confidently-wrong garbage rather than a low-
+# confidence rejection - the zero-hallucination check can't catch what looks certain but
+# is nonsense. Upscaling below this floor gives every image the same effective
+# resolution a PDF page gets; already-high-res phone photos are left untouched since this
+# only ever scales up, never down.
+_MIN_OCR_LONG_EDGE_PX = 2000
+
+
+def _upscale_for_ocr(image):
+    from PIL import Image
+
+    long_edge = max(image.size)
+    if long_edge >= _MIN_OCR_LONG_EDGE_PX:
+        return image
+    scale = _MIN_OCR_LONG_EDGE_PX / long_edge
+    new_size = (round(image.width * scale), round(image.height * scale))
+    return image.resize(new_size, Image.LANCZOS)
+
+
 # Israeli business receipts are commonly Hebrew, but a default Tesseract install only
 # ships the English language pack - eng-only recognition reads Hebrew labels as noise
 # and tanks average confidence below CONFIDENCE_THRESHOLD even when every field is
@@ -215,6 +236,16 @@ if (_TESSDATA_DIR / "heb.traineddata").is_file() and (_TESSDATA_DIR / "eng.train
 else:
     _TESSERACT_LANG = "eng"
     _TESSERACT_CONFIG = ""
+
+# Page segmentation modes to try, in order. 3 is Tesseract's default ("fully automatic
+# page segmentation") and reads a clean, full-resolution PDF-rendered page correctly by
+# detecting its header/table regions. But it badly mis-orders a low-res/upscaled photo of
+# a dense, bidirectional (Hebrew+numbers) invoice table - verified against a real scanned
+# receipt where --psm 3 read the vendor name and totals as unrelated garbage while --psm
+# 6 ("assume a single uniform block of text") read every required field correctly on the
+# same image. Neither mode dominates the other, so both are tried per page - same idea as
+# the tesseract-then-easyocr engine fallback below, one level down.
+_TESSERACT_PSM_MODES = (3, 6)
 
 
 def _pdf_to_images(file_bytes: bytes) -> list | None:
@@ -245,12 +276,33 @@ def _load_page_images(file_bytes: bytes, content_type: str | None) -> list | Non
     if content_type and content_type.startswith("image/"):
         import io
 
-        from PIL import Image
+        from PIL import Image, ImageOps
 
-        return [Image.open(io.BytesIO(file_bytes))]
+        image = Image.open(io.BytesIO(file_bytes))
+        print(
+            f"[ocr_service] Pillow opened image: format={image.format} mode={image.mode} "
+            f"size={image.size} exif_orientation="
+            f"{image.getexif().get(0x0112) if hasattr(image, 'getexif') else None}"
+        )
+        # Phone-camera JPEGs carry an EXIF Orientation tag instead of storing pixels
+        # right-side-up; PIL.Image.open ignores it, so a receipt photographed in
+        # portrait can be handed to the OCR engines sideways/upside-down with no
+        # error, just silently unreadable text (unlike a PDF page, which is rendered
+        # fresh via pymupdf and is never mis-oriented). exif_transpose applies the tag
+        # and strips it. convert("RGB") normalizes CMYK/palette JPEGs so both engines
+        # (EasyOCR needs a plain RGB numpy array) see the same pixel format as a PDF
+        # page render.
+        image = ImageOps.exif_transpose(image).convert("RGB")
+        upscaled = _upscale_for_ocr(image)
+        print(
+            f"[ocr_service] image ready for OCR: size={upscaled.size} mode={upscaled.mode} "
+            f"(upscaled={upscaled.size != image.size})"
+        )
+        return [upscaled]
 
     if content_type == "application/pdf":
-        return _pdf_to_images(file_bytes)
+        images = _pdf_to_images(file_bytes)
+        return [_upscale_for_ocr(image) for image in images] if images else images
 
     return None
 
@@ -272,37 +324,61 @@ def _try_tesseract(images: list) -> tuple[OCRResult | None, LowConfidenceInfo | 
         if os.path.isfile(_WINDOWS_TESSERACT_FALLBACK):
             pytesseract.pytesseract.tesseract_cmd = _WINDOWS_TESSERACT_FALLBACK
 
-    try:
-        page_texts = []
-        confidences: list[int] = []
-        for image in images:
-            page_texts.append(
-                pytesseract.image_to_string(image, lang=_TESSERACT_LANG, config=_TESSERACT_CONFIG)
-            )
-            data = pytesseract.image_to_data(
-                image,
-                lang=_TESSERACT_LANG,
-                config=_TESSERACT_CONFIG,
-                output_type=pytesseract.Output.DICT,
-            )
-            confidences.extend(
-                int(c) for c in data.get("conf", []) if str(c).lstrip("-").isdigit() and int(c) >= 0
-            )
-        text = "\n".join(page_texts)
-        avg_confidence = (sum(confidences) / len(confidences)) if confidences else 0.0
+    attempts: list[LowConfidenceInfo] = []
+    for psm in _TESSERACT_PSM_MODES:
+        config = f"{_TESSERACT_CONFIG} --psm {psm}".strip()
+        try:
+            page_texts = []
+            confidences: list[int] = []
+            for page_num, image in enumerate(images, start=1):
+                page_text = pytesseract.image_to_string(image, lang=_TESSERACT_LANG, config=config)
+                page_texts.append(page_text)
+                print(f"[ocr_service] tesseract psm={psm} page={page_num} raw_text={page_text!r}")
+                data = pytesseract.image_to_data(
+                    image,
+                    lang=_TESSERACT_LANG,
+                    config=config,
+                    output_type=pytesseract.Output.DICT,
+                )
+                confidences.extend(
+                    int(c)
+                    for c in data.get("conf", [])
+                    if str(c).lstrip("-").isdigit() and int(c) >= 0
+                )
+            text = "\n".join(page_texts)
+            avg_confidence = (sum(confidences) / len(confidences)) if confidences else 0.0
 
-        candidate = _extract_candidate_fields(text)
-        missing = _missing_fields(candidate)
+            candidate = _extract_candidate_fields(text)
+            missing = _missing_fields(candidate)
+            print(
+                f"[ocr_service] tesseract psm={psm} avg_confidence={avg_confidence:.1f} "
+                f"extracted={candidate} missing_fields={missing}"
+            )
 
-        if avg_confidence >= CONFIDENCE_THRESHOLD and not missing:
-            return _candidate_to_result(candidate, text, engine="tesseract"), None
+            if avg_confidence >= CONFIDENCE_THRESHOLD and not missing:
+                return _candidate_to_result(candidate, text, engine="tesseract"), None
 
-        reason = "low_confidence" if avg_confidence < CONFIDENCE_THRESHOLD else "missing_fields"
-        return None, LowConfidenceInfo(
-            reason=reason, engine="tesseract", extracted=candidate, missing_fields=missing
-        )
-    except Exception:
-        return None, LowConfidenceInfo(reason="engine_error", engine="tesseract")
+            reason = "low_confidence" if avg_confidence < CONFIDENCE_THRESHOLD else "missing_fields"
+            if reason == "low_confidence":
+                print(
+                    f"[ocr_service] tesseract psm={psm} REJECTED: confidence "
+                    f"{avg_confidence:.1f} below threshold {CONFIDENCE_THRESHOLD}"
+                )
+            else:
+                print(
+                    f"[ocr_service] tesseract psm={psm} REJECTED: missing required "
+                    f"field(s) {missing}"
+                )
+            attempts.append(
+                LowConfidenceInfo(
+                    reason=reason, engine="tesseract", extracted=candidate, missing_fields=missing
+                )
+            )
+        except Exception as exc:
+            print(f"[ocr_service] tesseract psm={psm} raised an exception: {exc!r}")
+            attempts.append(LowConfidenceInfo(reason="engine_error", engine="tesseract"))
+
+    return None, max(attempts, key=lambda a: len(REQUIRED_FIELDS) - len(a.missing_fields))
 
 
 def _try_easyocr(images: list) -> tuple[OCRResult | None, LowConfidenceInfo | None]:
@@ -323,17 +399,31 @@ def _try_easyocr(images: list) -> tuple[OCRResult | None, LowConfidenceInfo | No
         text = "\n".join(page_texts)
         avg_confidence = (sum(confidences) / len(confidences)) if confidences else 0.0
 
+        print(f"[ocr_service] easyocr raw_text={text!r}")
+
         candidate = _extract_candidate_fields(text)
         missing = _missing_fields(candidate)
+        print(
+            f"[ocr_service] easyocr avg_confidence={avg_confidence:.1f} "
+            f"extracted={candidate} missing_fields={missing}"
+        )
 
         if avg_confidence >= CONFIDENCE_THRESHOLD and not missing:
             return _candidate_to_result(candidate, text, engine="easyocr"), None
 
         reason = "low_confidence" if avg_confidence < CONFIDENCE_THRESHOLD else "missing_fields"
+        if reason == "low_confidence":
+            print(
+                f"[ocr_service] easyocr REJECTED: confidence {avg_confidence:.1f} "
+                f"below threshold {CONFIDENCE_THRESHOLD}"
+            )
+        else:
+            print(f"[ocr_service] easyocr REJECTED: missing required field(s) {missing}")
         return None, LowConfidenceInfo(
             reason=reason, engine="easyocr", extracted=candidate, missing_fields=missing
         )
-    except Exception:
+    except Exception as exc:
+        print(f"[ocr_service] easyocr raised an exception: {exc!r}")
         return None, LowConfidenceInfo(reason="engine_error", engine="easyocr")
 
 
@@ -341,14 +431,29 @@ def parse_invoice(filename: str, file_bytes: bytes, content_type: str | None) ->
     """Extracts vendor name, total amount, date, and tax id (ח"פ) from an uploaded
     receipt using real OCR only. Raises OCRLowConfidenceError - never returns
     fabricated data - when no engine can read the file reliably."""
+    extension = Path(filename).suffix.lower()
+    print(
+        f"[ocr_service] incoming file: filename={filename!r} extension={extension!r} "
+        f"content_type={content_type!r} size_bytes={len(file_bytes)}"
+    )
+
     attempts: list[LowConfidenceInfo] = []
 
     try:
         images = _load_page_images(file_bytes, content_type)
-    except Exception:
+    except Exception as exc:
+        print(
+            f"[ocr_service] failed to open {filename!r} (content_type={content_type!r}): "
+            f"{exc!r} - likely a corrupt file, unreadable header, or bad EXIF data"
+        )
         images = None
         engine = "pymupdf" if content_type == "application/pdf" else "pillow"
         attempts.append(LowConfidenceInfo(reason="engine_error", engine=engine))
+    else:
+        print(
+            f"[ocr_service] {filename!r} opened successfully: "
+            f"{len(images) if images else 0} page image(s)"
+        )
 
     if images:
         for attempt in (_try_tesseract, _try_easyocr):
@@ -363,4 +468,9 @@ def parse_invoice(filename: str, file_bytes: bytes, content_type: str | None) ->
     else:
         best = LowConfidenceInfo(reason="no_ocr_engine_available", engine="none")
 
+    print(
+        f"[ocr_service] {filename!r} could not be read reliably - best attempt: "
+        f"engine={best.engine} reason={best.reason} missing_fields={best.missing_fields} "
+        f"extracted={best.extracted}"
+    )
     raise OCRLowConfidenceError(best)

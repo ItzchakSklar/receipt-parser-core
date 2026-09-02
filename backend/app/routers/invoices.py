@@ -1,6 +1,7 @@
 import contextlib
 import logging
 import uuid
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
@@ -19,10 +20,16 @@ from app.schemas import (
     InvoiceUpdate,
     MonthlyExportRequest,
     MonthlyExportResponse,
+    UnrecognizedSortRequest,
 )
 from app.services.email_service import send_monthly_report
 from app.services.external_time_service import fetch_external_time, parse_external_datetime
-from app.services.ocr_service import OCRLowConfidenceError, OCRResult, parse_invoice
+from app.services.ocr_service import (
+    LowConfidenceInfo,
+    OCRLowConfidenceError,
+    OCRResult,
+    parse_invoice,
+)
 from app.services.report_service import build_monthly_csv, build_receipts_zip
 
 router = APIRouter(prefix="/api/invoices", tags=["invoices"])
@@ -31,6 +38,11 @@ logger = logging.getLogger("smartreceipt.invoices")
 
 ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp", "application/pdf"}
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
+
+# Files OCR could not read reliably are still saved (never rejected) under this
+# per-tenant subfolder and surfaced as the "לא מזוהים" folder for manual review,
+# instead of forcing the user to re-upload a clearer copy.
+UNRECOGNIZED_DIRNAME = "unrecognized"
 
 # Tolerance for comparing OCR-read amounts against a previously stored value -
 # floats and repeated OCR passes can differ by fractions of a cent.
@@ -56,12 +68,50 @@ def _get_or_create_uncategorized(db: Session, business_id: int) -> Category:
     return category
 
 
-def _serialize_extracted(extracted: dict) -> dict:
-    """Makes the OCR partial-extraction dict JSON-safe for the 422 error body."""
-    serialized = dict(extracted)
-    if "date" in serialized and hasattr(serialized["date"], "isoformat"):
-        serialized["date"] = serialized["date"].isoformat()
-    return serialized
+def _save_as_unrecognized(
+    db: Session,
+    business_id: int,
+    filename: str,
+    stored_path: Path,
+    tenant_dir: Path,
+    info: LowConfidenceInfo,
+    uploaded_at_external_time: datetime,
+) -> Invoice:
+    """Moves an unreadable upload into the tenant's unrecognized/ folder and creates
+    an Invoice row flagged is_unrecognized=True, using whatever OCR fragments (if
+    any) it managed to read and filename/current-time placeholders for the rest.
+    Never fabricates data presented as OCR-confirmed - the placeholders are only
+    ever shown behind the is_unrecognized flag until a human confirms real values
+    via POST /unrecognized/{id}/sort."""
+    unrecognized_dir = tenant_dir / UNRECOGNIZED_DIRNAME
+    unrecognized_dir.mkdir(parents=True, exist_ok=True)
+    unrecognized_path = unrecognized_dir / stored_path.name
+    stored_path.replace(unrecognized_path)
+
+    extracted_date = info.extracted.get("date")
+    invoice_date: datetime
+    if isinstance(extracted_date, date):
+        invoice_date = datetime(extracted_date.year, extracted_date.month, extracted_date.day)
+    else:
+        invoice_date = datetime.now(UTC)
+
+    invoice = Invoice(
+        business_id=business_id,
+        vendor_name=info.extracted.get("vendor_name") or filename,
+        amount=info.extracted.get("amount") or 0.0,
+        date=invoice_date,
+        tax_id=info.extracted.get("tax_id"),
+        invoice_number=info.extracted.get("invoice_number"),
+        category_id=None,
+        file_path=unrecognized_path.as_posix(),
+        ocr_source="manual",
+        is_unrecognized=True,
+        uploaded_at_external_time=uploaded_at_external_time,
+    )
+    db.add(invoice)
+    db.commit()
+    db.refresh(invoice)
+    return invoice
 
 
 def _resolve_tenant_file(business_id: int, file_reference: str) -> Path:
@@ -203,12 +253,18 @@ async def upload_invoice(
         )
 
     file_bytes = await file.read()
+    logger.info(
+        "Upload received: filename=%r content_type=%r size_bytes=%d",
+        file.filename,
+        file.content_type,
+        len(file_bytes),
+    )
     if len(file_bytes) > MAX_UPLOAD_BYTES:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "File exceeds 10MB limit.")
 
     # Persist to a per-tenant folder so files can never leak across businesses on disk.
-    # The file is saved regardless of OCR outcome, so a failed extraction can still be
-    # confirmed manually against the same uploaded receipt via POST /confirm.
+    # The file is saved regardless of OCR outcome - a failed extraction moves it into
+    # unrecognized/ for manual review rather than discarding or rejecting it.
     tenant_dir = settings.upload_path / str(business_id)
     tenant_dir.mkdir(parents=True, exist_ok=True)
     extension = Path(file.filename or "").suffix or ".bin"
@@ -221,24 +277,28 @@ async def upload_invoice(
     except OCRLowConfidenceError as exc:
         info = exc.info
         logger.warning(
-            "422 on POST /api/invoices/upload: OCR could not confirm data "
-            "(reason=%s, engine=%s, missing_fields=%s). filename=%r content_type=%r",
+            "OCR could not confirm data on POST /api/invoices/upload - saving to "
+            "'%s' for manual review (reason=%s, engine=%s, missing_fields=%s). "
+            "filename=%r content_type=%r",
+            UNRECOGNIZED_DIRNAME,
             info.reason,
             info.engine,
             info.missing_fields,
             file.filename,
             file.content_type,
         )
-        raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail={
-                "error": "INVALID_OCR_DATA",
-                "message": info.message,
-                "missing_fields": info.missing_fields,
-                "extracted": _serialize_extracted(info.extracted),
-                "file_reference": stored_path.as_posix(),
-            },
-        ) from exc
+        external_time = await fetch_external_time()
+        uploaded_at_external_time = parse_external_datetime(external_time)
+        invoice = _save_as_unrecognized(
+            db,
+            business_id,
+            file.filename or stored_name,
+            stored_path,
+            tenant_dir,
+            info,
+            uploaded_at_external_time,
+        )
+        return _to_invoice_out(invoice)
 
     _check_for_duplicate(db, business_id, ocr_result, stored_path)
 
@@ -271,10 +331,10 @@ async def confirm_invoice(
     business_id: int = Depends(get_current_business_id),
     db: Session = Depends(get_db),
 ):
-    """Finalizes an invoice from user-confirmed data after /upload returned 422
-    INVALID_OCR_DATA. The referenced file must already sit inside this tenant's
-    upload folder (written by /upload) - guards against path traversal / cross-tenant
-    file references."""
+    """Finalizes an invoice from user-confirmed data, keyed off a file_reference
+    already written to disk by /upload - guards against path traversal / cross-tenant
+    file references. Uploads that fail OCR are no longer rejected here; they land in
+    the "לא מזוהים" folder instead (see /unrecognized and /unrecognized/{id}/sort)."""
     _resolve_tenant_file(business_id, payload.file_reference)
 
     if payload.category_id is not None:
@@ -375,6 +435,7 @@ async def export_monthly(
         db.query(Invoice)
         .filter(
             Invoice.business_id == business_id,
+            Invoice.is_unrecognized.is_(False),
             extract("month", Invoice.date) == payload.month,
             extract("year", Invoice.date) == payload.year,
         )
@@ -411,13 +472,81 @@ def list_invoices(
     business_id: int = Depends(get_current_business_id),
     db: Session = Depends(get_db),
 ):
+    """Lists confirmed invoices only - files still awaiting manual review sit in the
+    "לא מזוהים" folder (GET /unrecognized) and are never mixed into the normal
+    Year/Month explorer or dashboard totals."""
     invoices = (
         db.query(Invoice)
-        .filter(Invoice.business_id == business_id)
+        .filter(Invoice.business_id == business_id, Invoice.is_unrecognized.is_(False))
         .order_by(Invoice.date.desc())
         .all()
     )
     return [_to_invoice_out(inv) for inv in invoices]
+
+
+@router.get("/unrecognized", response_model=list[InvoiceOut])
+def list_unrecognized_invoices(
+    business_id: int = Depends(get_current_business_id),
+    db: Session = Depends(get_db),
+):
+    """Files OCR could not read reliably, saved but awaiting manual sorting - backs
+    the persistent "לא מזוהים" folder shown at the top level of the File Explorer."""
+    invoices = (
+        db.query(Invoice)
+        .filter(Invoice.business_id == business_id, Invoice.is_unrecognized.is_(True))
+        .order_by(Invoice.created_at.desc())
+        .all()
+    )
+    return [_to_invoice_out(inv) for inv in invoices]
+
+
+@router.post("/unrecognized/{invoice_id}/sort", response_model=InvoiceOut)
+def sort_unrecognized_invoice(
+    invoice_id: int,
+    payload: UnrecognizedSortRequest,
+    business_id: int = Depends(get_current_business_id),
+    db: Session = Depends(get_db),
+):
+    """Applies the user-confirmed vendor/amount/date (and optional tax id/category)
+    for a receipt that landed in "לא מזוהים", clears is_unrecognized, and moves the
+    file out of unrecognized/ so it now appears under its proper Year/Month folder."""
+    invoice = (
+        db.query(Invoice)
+        .filter(
+            Invoice.id == invoice_id,
+            Invoice.business_id == business_id,
+            Invoice.is_unrecognized.is_(True),
+        )
+        .first()
+    )
+    if invoice is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unrecognized invoice not found")
+
+    if payload.category_id is not None:
+        category = db.get(Category, payload.category_id)
+        if category is None or category.business_id != business_id:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid category_id.")
+    else:
+        category = _get_or_create_uncategorized(db, business_id)
+
+    current_path = Path(invoice.file_path)
+    if current_path.parent.name == UNRECOGNIZED_DIRNAME and current_path.is_file():
+        sorted_path = current_path.parent.parent / current_path.name
+        current_path.replace(sorted_path)
+        invoice.file_path = sorted_path.as_posix()
+
+    invoice.vendor_name = payload.vendor_name
+    invoice.amount = payload.amount
+    invoice.date = payload.date
+    invoice.tax_id = payload.tax_id
+    invoice.invoice_number = payload.invoice_number
+    invoice.category_id = category.id
+    invoice.ocr_source = "manual"
+    invoice.is_unrecognized = False
+    db.commit()
+    db.refresh(invoice)
+
+    return _to_invoice_out(invoice)
 
 
 @router.get("/{invoice_id}", response_model=InvoiceOut)

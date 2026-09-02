@@ -4,6 +4,7 @@ import { useCallback, useRef, useState, type DragEvent } from 'react';
 import { api } from '../api/client';
 import type { DuplicateConflictDetail, Invoice } from '../types';
 import ConflictResolutionModal from './ConflictResolutionModal';
+import Toast from './Toast';
 
 interface UploadZoneProps {
   onUploaded: (invoice: Invoice) => void;
@@ -11,13 +12,14 @@ interface UploadZoneProps {
 
 const ACCEPTED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
 
-type UploadState = 'idle' | 'uploading' | 'success' | 'error' | 'unclear' | 'duplicate';
+type UploadState = 'idle' | 'uploading' | 'success' | 'error' | 'unrecognized' | 'duplicate';
 
 export default function UploadZone({ onUploaded }: UploadZoneProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [state, setState] = useState<UploadState>('idle');
   const [message, setMessage] = useState<string | null>(null);
   const [conflict, setConflict] = useState<DuplicateConflictDetail | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const handleFiles = useCallback(
@@ -43,19 +45,20 @@ export default function UploadZone({ onUploaded }: UploadZoneProps) {
         // strips the boundary and the backend receives an unparsable body,
         // which FastAPI reports as a 422 "file field required" error.
         const { data } = await api.post<Invoice>('/invoices/upload', formData);
-        setState('success');
-        setMessage(`Extracted: ${data.vendor_name} — ${data.amount.toFixed(2)}`);
+        if (data.is_unrecognized) {
+          // OCR couldn't read this one reliably. The file is never discarded — it's
+          // saved under the "לא מזוהים" folder for manual review instead of showing
+          // fabricated-looking vendor/amount values here.
+          setState('unrecognized');
+          setMessage(null);
+          setToast("הקובץ נשמר בתיקיית 'לא מזוהים' לבחינה ידנית.");
+        } else {
+          setState('success');
+          setMessage(`Extracted: ${data.vendor_name} — ${data.amount.toFixed(2)}`);
+        }
         onUploaded(data);
       } catch (err: any) {
         const detail = err?.response?.data?.detail;
-        if (err?.response?.status === 422 && detail?.error === 'INVALID_OCR_DATA') {
-          // Zero-form policy: never force a manual fill-in form. Ask for a clearer
-          // photo/scan instead so every saved invoice stays OCR-verified or explicitly
-          // re-confirmed via a fresh, readable upload.
-          setState('unclear');
-          setMessage(null);
-          return;
-        }
         if (err?.response?.status === 409 && detail?.error === 'DUPLICATE_EXISTS') {
           setState('duplicate');
           setMessage(null);
@@ -189,13 +192,14 @@ export default function UploadZone({ onUploaded }: UploadZoneProps) {
         </div>
       )}
 
-      {state === 'unclear' && (
+      {state === 'unrecognized' && (
         <div
           dir="rtl"
           className="mt-4 flex flex-col items-center gap-3 rounded-lg bg-amber-50 border border-amber-200 px-4 py-4 text-center"
         >
           <p className="text-sm font-medium text-amber-800">
-            התמונה לא מספיק ברורה לקריאת הנתונים. אנא צלם/העלה שוב.
+            התמונה לא הייתה ברורה מספיק לקריאה אוטומטית. הקובץ נשמר בתיקיית "לא מזוהים" — ניתן למיין
+            אותו ידנית משם.
           </p>
           <button
             type="button"
@@ -203,7 +207,7 @@ export default function UploadZone({ onUploaded }: UploadZoneProps) {
             className="inline-flex items-center gap-2 bg-amber-600 hover:bg-amber-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition"
           >
             <Camera size={16} />
-            צלם / העלה שוב
+            העלה קובץ נוסף
           </button>
         </div>
       )}
@@ -246,6 +250,8 @@ export default function UploadZone({ onUploaded }: UploadZoneProps) {
           }}
         />
       )}
+
+      {toast && <Toast message={toast} onDismiss={() => setToast(null)} />}
     </div>
   );
 }

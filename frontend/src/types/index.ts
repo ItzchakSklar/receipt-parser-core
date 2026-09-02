@@ -36,8 +36,20 @@ export interface Invoice {
   category_name: string | null;
   file_path: string;
   ocr_source: 'ocr' | 'manual';
+  is_unrecognized: boolean;
   uploaded_at_external_time: string;
   created_at: string;
+}
+
+/** Payload for POST /invoices/unrecognized/{id}/sort, submitted from the "לא מזוהים"
+ * review modal to manually confirm the real fields for a receipt OCR couldn't read. */
+export interface UnrecognizedSortPayload {
+  vendor_name: string;
+  amount: number;
+  date: string;
+  tax_id: string | null;
+  invoice_number: string | null;
+  category_id: number | null;
 }
 
 /** The newly-extracted side of a DUPLICATE_CONFLICT response — not yet a saved

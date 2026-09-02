@@ -34,3 +34,8 @@ def ensure_schema() -> None:
         if "invoice_number" not in existing_columns:
             conn.exec_driver_sql("ALTER TABLE invoices ADD COLUMN invoice_number VARCHAR(100)")
             conn.commit()
+        if "is_unrecognized" not in existing_columns:
+            conn.exec_driver_sql(
+                "ALTER TABLE invoices ADD COLUMN is_unrecognized BOOLEAN DEFAULT 0 NOT NULL"
+            )
+            conn.commit()

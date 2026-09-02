@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -80,6 +80,13 @@ class Invoice(Base):
     # "ocr" = auto-extracted with acceptable confidence; "manual" = user-confirmed
     # after OCR could not extract data reliably. Never contains fabricated/mock data.
     ocr_source: Mapped[str] = mapped_column(String(10), default="manual")
+
+    # True when OCR could not read this receipt reliably at upload time. The file is
+    # still saved (never rejected) and the row gets placeholder vendor/amount/date so
+    # every column stays non-null; the "לא מזוהים" folder queries on this flag rather
+    # than trusting those placeholders as real data. Cleared once a user manually
+    # confirms the real fields via POST /unrecognized/{id}/sort.
+    is_unrecognized: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     # Timestamp stamped from the WorldTimeAPI external time source at upload time.
     uploaded_at_external_time: Mapped[datetime] = mapped_column(

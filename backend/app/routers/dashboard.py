@@ -16,7 +16,11 @@ def get_dashboard_stats(
     business_id: int = Depends(get_current_business_id),
     db: Session = Depends(get_db),
 ):
-    invoices = db.query(Invoice).filter(Invoice.business_id == business_id).all()
+    invoices = (
+        db.query(Invoice)
+        .filter(Invoice.business_id == business_id, Invoice.is_unrecognized.is_(False))
+        .all()
+    )
 
     total_spent = sum(inv.amount for inv in invoices)
     invoice_count = len(invoices)
