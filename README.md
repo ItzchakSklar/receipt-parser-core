@@ -188,3 +188,63 @@ stamp `uploaded_at_external_time` on every invoice and to power the live clock w
 in the header. If the external API is unreachable, the backend falls back to local UTC
 time and flags the response with `source: "local_fallback"` so the app keeps working
 offline.
+
+## GitLab CI/CD Setup
+
+`.gitlab-ci.yml` defines three stages that run on every push:
+
+1. **test** - `test:backend` installs `backend/requirements*.txt` (plus the
+   `tesseract-ocr` apt package) and runs `ruff check`, `ruff format --check`, and
+   `pytest`. `test:frontend` runs `pnpm install --frozen-lockfile` and
+   `tsc -b` (typecheck). Each job only runs when files under its own directory (or
+   `.gitlab-ci.yml`) change.
+2. **build** (main branch only) - builds `backend/Dockerfile` and
+   `frontend/Dockerfile` with Docker-in-Docker and pushes them to the GitLab
+   Container Registry as `$CI_REGISTRY_IMAGE/backend` and `$CI_REGISTRY_IMAGE/frontend`,
+   tagged with both `latest` and the commit's short SHA.
+3. **deploy** (main branch only, manual) - copies the root `docker-compose.yml` to a
+   target server over `rsync`/`ssh`, then runs `docker compose pull && docker compose
+   up -d` there so the server picks up the images just pushed in the build stage.
+
+### Required CI/CD variables
+
+Set these under **Settings > CI/CD > Variables** in the GitLab project (mark the key
+and password as **Masked**, and **Protected** if `main` is a protected branch):
+
+| Variable          | Purpose                                                                 |
+| ------------------ | ------------------------------------------------------------------------ |
+| `SSH_PRIVATE_KEY` | Private key (PEM, no passphrase) whose public half is in the deploy server's `~/.ssh/authorized_keys` |
+| `SERVER_IP`       | Hostname or IP of the target production/staging server                 |
+| `SERVER_USER`     | SSH user on that server (needs Docker permissions, e.g. in the `docker` group) |
+
+`CI_REGISTRY`, `CI_REGISTRY_USER`, `CI_REGISTRY_PASSWORD`, `CI_REGISTRY_IMAGE`, and
+`CI_COMMIT_SHORT_SHA` are predefined by GitLab and don't need to be set manually - the
+registry ones only work if the project's Container Registry is enabled (**Settings >
+General > Visibility, project features, permissions**).
+
+The deploy server itself needs, once, ahead of the first deploy:
+
+- Docker + the Docker Compose plugin installed
+- A `~/smartreceipt/` directory
+- A `~/smartreceipt/.env` file (copy from the repo's root `.env.example` and fill in
+  `SECRET_KEY`, `CORS_ORIGINS`, and SMTP settings) - `docker-compose.yml` reads it for
+  variable substitution
+
+### Triggering deployments
+
+The `deploy` job runs only on `main` and is set to `when: manual`, so it appears as a
+▶ button on the pipeline page (**CI/CD > Pipelines**) rather than running
+automatically - deliberate, since it pushes to a real server. To make deploys
+automatic on every push to `main` instead, remove the `when: manual` line from the
+`deploy` job in `.gitlab-ci.yml`.
+
+### Running the stack locally
+
+```bash
+cp .env.example .env      # fill in SECRET_KEY etc.
+docker compose up --build
+```
+
+This builds `backend/Dockerfile` and `frontend/Dockerfile` locally and serves the
+frontend (nginx, reverse-proxying `/api` to the backend container) on
+`http://localhost`, with the backend on `http://localhost:8000`.
