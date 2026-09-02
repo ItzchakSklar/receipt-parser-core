@@ -1,5 +1,5 @@
-import { DollarSign, Hash, Mail, TrendingUp } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { DollarSign, Hash, Mail, TrendingUp } from 'lucide-react';
+import { useEffect, useState, type ReactNode } from 'react';
 import {
   Bar,
   BarChart,
@@ -12,13 +12,13 @@ import {
   Tooltip,
   XAxis,
   YAxis,
-} from "recharts";
+} from 'recharts';
 
-import { api } from "../api/client";
-import type { DashboardStats } from "../types";
-import SendToAccountantModal from "./SendToAccountantModal";
+import { api } from '../api/client';
+import type { DashboardStats } from '../types';
+import SendToAccountantModal from './SendToAccountantModal';
 
-const CHART_COLORS = ["#6366f1", "#22c55e", "#f59e0b", "#ec4899", "#06b6d4", "#8b5cf6", "#ef4444"];
+const CHART_COLORS = ['#6366f1', '#22c55e', '#f59e0b', '#ec4899', '#06b6d4', '#8b5cf6', '#ef4444'];
 
 interface StatCardProps {
   icon: ReactNode;
@@ -46,7 +46,7 @@ export default function Dashboard({ refreshKey }: { refreshKey: number }) {
   useEffect(() => {
     setLoading(true);
     api
-      .get<DashboardStats>("/dashboard/stats")
+      .get<DashboardStats>('/dashboard/stats')
       .then(({ data }) => setStats(data))
       .finally(() => setLoading(false));
   }, [refreshKey]);
@@ -60,7 +60,9 @@ export default function Dashboard({ refreshKey }: { refreshKey: number }) {
       >
         <Mail size={16} />
         Send to Accountant
-        <span className="text-slate-400" dir="rtl">שלח לרואה חשבון</span>
+        <span className="text-slate-400" dir="rtl">
+          שלח לרואה חשבון
+        </span>
       </button>
     </div>
   );
@@ -86,9 +88,17 @@ export default function Dashboard({ refreshKey }: { refreshKey: number }) {
       {exportButton}
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <StatCard icon={<DollarSign size={22} />} label="Total Spent" value={`$${stats.total_spent.toFixed(2)}`} />
+        <StatCard
+          icon={<DollarSign size={22} />}
+          label="Total Spent"
+          value={`$${stats.total_spent.toFixed(2)}`}
+        />
         <StatCard icon={<Hash size={22} />} label="Invoices" value={String(stats.invoice_count)} />
-        <StatCard icon={<TrendingUp size={22} />} label="Average Invoice" value={`$${stats.average_invoice.toFixed(2)}`} />
+        <StatCard
+          icon={<TrendingUp size={22} />}
+          label="Average Invoice"
+          value={`$${stats.average_invoice.toFixed(2)}`}
+        />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -105,7 +115,10 @@ export default function Dashboard({ refreshKey }: { refreshKey: number }) {
                 paddingAngle={2}
               >
                 {stats.category_breakdown.map((entry, index) => (
-                  <Cell key={entry.category_id ?? "none"} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+                  <Cell
+                    key={entry.category_id ?? 'none'}
+                    fill={CHART_COLORS[index % CHART_COLORS.length]}
+                  />
                 ))}
               </Pie>
               <Tooltip formatter={(value) => `$${Number(value).toFixed(2)}`} />
@@ -132,7 +145,10 @@ export default function Dashboard({ refreshKey }: { refreshKey: number }) {
         <h3 className="font-semibold text-slate-800 mb-4">Category Breakdown</h3>
         <div className="space-y-2">
           {stats.category_breakdown.map((cat, index) => (
-            <div key={cat.category_id ?? "none"} className="flex items-center justify-between py-2 border-b border-slate-100 last:border-0">
+            <div
+              key={cat.category_id ?? 'none'}
+              className="flex items-center justify-between py-2 border-b border-slate-100 last:border-0"
+            >
               <div className="flex items-center gap-2">
                 <span
                   className="w-2.5 h-2.5 rounded-full"

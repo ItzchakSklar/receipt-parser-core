@@ -1,9 +1,9 @@
-import { Calendar, DollarSign, Hash, Store, X } from "lucide-react";
-import { useEffect, useState, type MouseEvent, type ReactNode } from "react";
+import { Calendar, DollarSign, Hash, Store, X } from 'lucide-react';
+import { useEffect, useState, type MouseEvent, type ReactNode } from 'react';
 
-import { api } from "../api/client";
-import type { Invoice } from "../types";
-import { formatILS } from "../utils/currency";
+import { api } from '../api/client';
+import type { Invoice } from '../types';
+import { formatILS } from '../utils/currency';
 
 interface ReceiptLightboxModalProps {
   invoice: Invoice;
@@ -31,14 +31,14 @@ function MetaRow({ icon, label, value }: MetaRowProps) {
 export default function ReceiptLightboxModal({ invoice, onClose }: ReceiptLightboxModalProps) {
   const [objectUrl, setObjectUrl] = useState<string | null>(null);
   const [error, setError] = useState(false);
-  const isPdf = invoice.file_path.toLowerCase().endsWith(".pdf");
+  const isPdf = invoice.file_path.toLowerCase().endsWith('.pdf');
 
   useEffect(() => {
     let url: string | null = null;
     let cancelled = false;
 
     api
-      .get(`/invoices/${invoice.id}/file`, { responseType: "blob" })
+      .get(`/invoices/${invoice.id}/file`, { responseType: 'blob' })
       .then(({ data }) => {
         if (cancelled) return;
         url = URL.createObjectURL(data);
@@ -56,10 +56,10 @@ export default function ReceiptLightboxModal({ invoice, onClose }: ReceiptLightb
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
+      if (e.key === 'Escape') onClose();
     }
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
   }, [onClose]);
 
   function stopPropagation(e: MouseEvent) {
@@ -67,7 +67,10 @@ export default function ReceiptLightboxModal({ invoice, onClose }: ReceiptLightb
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 p-4" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 p-4"
+      onClick={onClose}
+    >
       <div
         className="flex h-full max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl md:flex-row"
         onClick={stopPropagation}
@@ -81,9 +84,15 @@ export default function ReceiptLightboxModal({ invoice, onClose }: ReceiptLightb
             <X size={20} />
           </button>
 
-          {error && <p className="px-4 text-center text-sm text-red-300">Could not load the receipt file.</p>}
+          {error && (
+            <p className="px-4 text-center text-sm text-red-300">
+              Could not load the receipt file.
+            </p>
+          )}
           {!error && !objectUrl && <p className="text-sm text-slate-400">Loading...</p>}
-          {objectUrl && isPdf && <iframe src={objectUrl} title="Receipt PDF" className="h-full w-full" />}
+          {objectUrl && isPdf && (
+            <iframe src={objectUrl} title="Receipt PDF" className="h-full w-full" />
+          )}
           {objectUrl && !isPdf && (
             <img
               src={objectUrl}
@@ -96,7 +105,7 @@ export default function ReceiptLightboxModal({ invoice, onClose }: ReceiptLightb
         <div className="w-full shrink-0 space-y-5 overflow-y-auto p-6 md:w-80">
           <div>
             <h3 className="text-lg font-semibold text-slate-800">{invoice.vendor_name}</h3>
-            {invoice.ocr_source === "manual" && (
+            {invoice.ocr_source === 'manual' && (
               <span className="mt-1 inline-block rounded bg-amber-50 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-amber-600">
                 Manually confirmed
               </span>
@@ -105,13 +114,26 @@ export default function ReceiptLightboxModal({ invoice, onClose }: ReceiptLightb
 
           <div className="space-y-4">
             <MetaRow icon={<Store size={16} />} label="Vendor" value={invoice.vendor_name} />
-            <MetaRow icon={<DollarSign size={16} />} label="Total" value={formatILS(invoice.amount)} />
-            <MetaRow icon={<Calendar size={16} />} label="Date" value={new Date(invoice.date).toLocaleDateString()} />
-            <MetaRow icon={<Hash size={16} />} label="Tax ID" value={invoice.tax_id ?? "—"} />
+            <MetaRow
+              icon={<DollarSign size={16} />}
+              label="Total"
+              value={formatILS(invoice.amount)}
+            />
+            <MetaRow
+              icon={<Calendar size={16} />}
+              label="Date"
+              value={new Date(invoice.date).toLocaleDateString()}
+            />
+            <MetaRow icon={<Hash size={16} />} label="Tax ID" value={invoice.tax_id ?? '—'} />
+            <MetaRow
+              icon={<Hash size={16} />}
+              label="Invoice #"
+              value={invoice.invoice_number ?? '—'}
+            />
             <MetaRow
               icon={<Store size={16} />}
               label="Category"
-              value={invoice.category_name ?? "Uncategorized"}
+              value={invoice.category_name ?? 'Uncategorized'}
             />
           </div>
         </div>

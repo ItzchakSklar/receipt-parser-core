@@ -10,10 +10,12 @@ python-jose[cryptography]==3.5.0
 bcrypt==5.0.0
 python-dotenv==1.2.3
 
-# Optional OCR/text-extraction backends. Without at least one of these installed,
-# every upload requires manual field confirmation (see app/services/ocr_service.py) -
-# by design, the app never fabricates receipt data.
-# pytesseract==0.3.13
-# Pillow==10.4.0
+# OCR backends. Without at least one recognition engine (pytesseract, optionally
+# easyocr) installed, every upload requires manual field confirmation (see
+# app/services/ocr_service.py) - by design, the app never fabricates receipt data.
+# PyMuPDF rasterizes PDF pages to images so PDFs flow through the same OCR engines
+# as photographed receipts, rather than a separate embedded-text-only code path.
+pytesseract==0.3.13
+Pillow==10.4.0
+pymupdf==1.28.2
 # easyocr==1.7.2
-# pypdf==5.1.0

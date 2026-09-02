@@ -1,6 +1,6 @@
-import { Folder } from "lucide-react";
+import { Folder } from 'lucide-react';
 
-import { formatILSRounded } from "../utils/currency";
+import { formatILSRounded } from '../utils/currency';
 
 interface MonthFolderCardProps {
   monthLabel: string;
@@ -9,7 +9,12 @@ interface MonthFolderCardProps {
   onOpen: () => void;
 }
 
-export default function MonthFolderCard({ monthLabel, count, total, onOpen }: MonthFolderCardProps) {
+export default function MonthFolderCard({
+  monthLabel,
+  count,
+  total,
+  onOpen,
+}: MonthFolderCardProps) {
   const isEmpty = count === 0;
 
   return (
@@ -17,7 +22,7 @@ export default function MonthFolderCard({ monthLabel, count, total, onOpen }: Mo
       type="button"
       onClick={onOpen}
       className={`group flex flex-col items-center gap-2 rounded-2xl border border-slate-200 bg-white p-5 text-center shadow-sm transition hover:-translate-y-0.5 hover:border-brand-300 hover:shadow-md ${
-        isEmpty ? "opacity-60" : ""
+        isEmpty ? 'opacity-60' : ''
       }`}
     >
       <Folder

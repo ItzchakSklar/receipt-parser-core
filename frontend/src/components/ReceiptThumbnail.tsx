@@ -1,7 +1,7 @@
-import { ImageOff } from "lucide-react";
-import { useEffect, useState } from "react";
+import { ImageOff } from 'lucide-react';
+import { useEffect, useState } from 'react';
 
-import { api } from "../api/client";
+import { api } from '../api/client';
 
 interface ReceiptThumbnailProps {
   invoiceId: number;
@@ -20,7 +20,7 @@ export default function ReceiptThumbnail({ invoiceId, alt }: ReceiptThumbnailPro
     let cancelled = false;
 
     api
-      .get(`/invoices/${invoiceId}/file`, { responseType: "blob" })
+      .get(`/invoices/${invoiceId}/file`, { responseType: 'blob' })
       .then(({ data }) => {
         if (cancelled) return;
         url = URL.createObjectURL(data);

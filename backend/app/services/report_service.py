@@ -21,14 +21,16 @@ def build_monthly_csv(business: Business, month: int, year: int, invoices: list[
     total = 0.0
     for invoice in invoices:
         category_name = invoice.category.name if invoice.category else "Uncategorized"
-        writer.writerow([
-            invoice.date.strftime("%Y-%m-%d"),
-            invoice.vendor_name,
-            category_name,
-            invoice.tax_id or "",
-            f"{invoice.amount:.2f}",
-            invoice.ocr_source,
-        ])
+        writer.writerow(
+            [
+                invoice.date.strftime("%Y-%m-%d"),
+                invoice.vendor_name,
+                category_name,
+                invoice.tax_id or "",
+                f"{invoice.amount:.2f}",
+                invoice.ocr_source,
+            ]
+        )
         total += invoice.amount
 
     writer.writerow([])

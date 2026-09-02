@@ -1,9 +1,10 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
-
 # ---------- Auth / Business / User ----------
+
 
 class BusinessCreate(BaseModel):
     name: str
@@ -46,6 +47,7 @@ class TokenResponse(BaseModel):
 
 # ---------- Category ----------
 
+
 class CategoryCreate(BaseModel):
     name: str
 
@@ -59,6 +61,7 @@ class CategoryOut(BaseModel):
 
 # ---------- Invoice ----------
 
+
 class InvoiceOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
@@ -67,19 +70,22 @@ class InvoiceOut(BaseModel):
     amount: float
     date: datetime
     tax_id: str | None
+    invoice_number: str | None = None
     category_id: int | None
     category_name: str | None = None
     file_path: str
     ocr_source: str
+    is_unrecognized: bool
     uploaded_at_external_time: datetime
     created_at: datetime
 
 
 class InvoiceUpdate(BaseModel):
-    vendor_name: str | None = None
-    amount: float | None = None
+    vendor_name: str | None = Field(default=None, min_length=1)
+    amount: float | None = Field(default=None, gt=0)
     date: datetime | None = None
     tax_id: str | None = None
+    invoice_number: str | None = None
     category_id: int | None = None
 
 
@@ -92,10 +98,39 @@ class InvoiceConfirmRequest(BaseModel):
     amount: float = Field(gt=0)
     date: datetime
     tax_id: str | None = None
+    invoice_number: str | None = None
     category_id: int | None = None
 
 
+class UnrecognizedSortRequest(BaseModel):
+    """Submitted from the "לא מזוהים" folder's review modal to manually confirm the
+    real fields for a receipt OCR could not read, moving it into its proper
+    Year/Month folder."""
+
+    vendor_name: str = Field(min_length=1)
+    amount: float = Field(gt=0)
+    date: datetime
+    tax_id: str | None = None
+    invoice_number: str | None = None
+    category_id: int | None = None
+
+
+class DuplicateResolutionRequest(BaseModel):
+    """Submitted after /upload returns 409 DUPLICATE_CONFLICT, to let the user pick
+    a side in the comparison modal instead of silently overwriting either record."""
+
+    action: Literal["keep_existing", "update_with_new"]
+    existing_invoice_id: int
+    file_reference: str
+    vendor_name: str = Field(min_length=1)
+    amount: float = Field(gt=0)
+    date: datetime
+    tax_id: str | None = None
+    invoice_number: str | None = None
+
+
 # ---------- Dashboard ----------
+
 
 class CategoryBreakdown(BaseModel):
     category_id: int | None
@@ -119,6 +154,7 @@ class DashboardStats(BaseModel):
 
 # ---------- Monthly export ----------
 
+
 class MonthlyExportRequest(BaseModel):
     email: EmailStr
     month: int = Field(ge=1, le=12)
@@ -134,6 +170,7 @@ class MonthlyExportResponse(BaseModel):
 
 
 # ---------- External time ----------
+
 
 class ExternalTime(BaseModel):
     datetime: str

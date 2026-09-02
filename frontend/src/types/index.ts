@@ -31,30 +31,54 @@ export interface Invoice {
   amount: number;
   date: string;
   tax_id: string | null;
+  invoice_number: string | null;
   category_id: number | null;
   category_name: string | null;
   file_path: string;
-  ocr_source: "ocr" | "manual";
+  ocr_source: 'ocr' | 'manual';
+  is_unrecognized: boolean;
   uploaded_at_external_time: string;
   created_at: string;
 }
 
-export interface OCRErrorDetail {
-  error: string;
-  message: string;
-  missing_fields: string[];
-  extracted: {
-    vendor_name?: string;
-    amount?: number;
-    date?: string;
-    tax_id?: string;
-  };
+/** Payload for POST /invoices/unrecognized/{id}/sort, submitted from the "לא מזוהים"
+ * review modal to manually confirm the real fields for a receipt OCR couldn't read. */
+export interface UnrecognizedSortPayload {
+  vendor_name: string;
+  amount: number;
+  date: string;
+  tax_id: string | null;
+  invoice_number: string | null;
+  category_id: number | null;
+}
+
+/** The newly-extracted side of a DUPLICATE_CONFLICT response — not yet a saved
+ * invoice, just the OCR read plus a reference to the file already on disk. */
+export interface ExtractedReceiptData {
+  vendor_name: string;
+  amount: number;
+  date: string;
+  tax_id: string | null;
+  invoice_number: string | null;
   file_reference: string;
+}
+
+export interface DuplicateExistsDetail {
+  error: 'DUPLICATE_EXISTS';
+  message: string;
+  existing_invoice: Invoice;
+}
+
+export interface DuplicateConflictDetail {
+  error: 'DUPLICATE_CONFLICT';
+  message: string;
+  existing_invoice: Invoice;
+  new_data: ExtractedReceiptData;
 }
 
 export interface MonthlyExportResponse {
   status: string;
-  mode: "smtp" | "mock";
+  mode: 'smtp' | 'mock';
   invoice_count: number;
   total: number;
   recipient: string;
