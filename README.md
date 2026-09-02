@@ -189,38 +189,41 @@ in the header. If the external API is unreachable, the backend falls back to loc
 time and flags the response with `source: "local_fallback"` so the app keeps working
 offline.
 
-## GitLab CI/CD Setup
+## GitHub Actions CI/CD Setup
 
-`.gitlab-ci.yml` defines three stages that run on every push:
+`.github/workflows/deploy.yml` defines three jobs that run on every push (and PR) to
+`main`:
 
-1. **test** - `test:backend` installs `backend/requirements*.txt` (plus the
-   `tesseract-ocr` apt package) and runs `ruff check`, `ruff format --check`, and
-   `pytest`. `test:frontend` runs `pnpm install --frozen-lockfile` and
-   `tsc -b` (typecheck). Each job only runs when files under its own directory (or
-   `.gitlab-ci.yml`) change.
-2. **build** (main branch only) - builds `backend/Dockerfile` and
-   `frontend/Dockerfile` with Docker-in-Docker and pushes them to the GitLab
-   Container Registry as `$CI_REGISTRY_IMAGE/backend` and `$CI_REGISTRY_IMAGE/frontend`,
-   tagged with both `latest` and the commit's short SHA.
-3. **deploy** (main branch only, manual) - copies the root `docker-compose.yml` to a
-   target server over `rsync`/`ssh`, then runs `docker compose pull && docker compose
-   up -d` there so the server picks up the images just pushed in the build stage.
+1. **test** (`test-backend` + `test-frontend`) - `test-backend` installs
+   `backend/requirements*.txt` (plus the `tesseract-ocr` apt package) and runs
+   `ruff check`, `ruff format --check`, and `pytest`. `test-frontend` runs
+   `pnpm install --frozen-lockfile` and `tsc -b` (typecheck).
+2. **build** (push to `main` only, after tests pass) - builds `backend/Dockerfile`
+   and `frontend/Dockerfile` and pushes them to the GitHub Container Registry (GHCR)
+   as `ghcr.io/<owner>/<repo>/backend` and `ghcr.io/<owner>/<repo>/frontend`, tagged
+   with both `latest` and the commit SHA. Uses the automatically-provided
+   `GITHUB_TOKEN`, so no registry secret needs to be configured.
+3. **deploy** (push to `main` only, after build succeeds) - copies the root
+   `docker-compose.yml` to a target server over SSH, then runs `docker compose pull
+   && docker compose up -d` there so the server picks up the images just pushed by
+   the build job.
 
-### Required CI/CD variables
+### Required GitHub repository secrets
 
-Set these under **Settings > CI/CD > Variables** in the GitLab project (mark the key
-and password as **Masked**, and **Protected** if `main` is a protected branch):
+Set these under **Settings > Secrets and variables > Actions** in the GitHub repo:
 
-| Variable          | Purpose                                                                 |
+| Secret            | Purpose                                                                 |
 | ------------------ | ------------------------------------------------------------------------ |
 | `SSH_PRIVATE_KEY` | Private key (PEM, no passphrase) whose public half is in the deploy server's `~/.ssh/authorized_keys` |
-| `SERVER_IP`       | Hostname or IP of the target production/staging server                 |
+| `SERVER_HOST`     | Hostname or IP of the target production/staging server                 |
 | `SERVER_USER`     | SSH user on that server (needs Docker permissions, e.g. in the `docker` group) |
 
-`CI_REGISTRY`, `CI_REGISTRY_USER`, `CI_REGISTRY_PASSWORD`, `CI_REGISTRY_IMAGE`, and
-`CI_COMMIT_SHORT_SHA` are predefined by GitLab and don't need to be set manually - the
-registry ones only work if the project's Container Registry is enabled (**Settings >
-General > Visibility, project features, permissions**).
+No registry secret is needed - the workflow logs in to GHCR with the built-in
+`secrets.GITHUB_TOKEN`, both to push images from the `build` job and to let the
+deploy server pull them. The first time this runs, GHCR creates the
+`backend`/`frontend` packages as **private** by default; either make them public
+(package **Settings > Change visibility**) or link them to the repo (**Package
+settings > Manage Actions access**) so the deploy server's login has pull access.
 
 The deploy server itself needs, once, ahead of the first deploy:
 
@@ -232,11 +235,12 @@ The deploy server itself needs, once, ahead of the first deploy:
 
 ### Triggering deployments
 
-The `deploy` job runs only on `main` and is set to `when: manual`, so it appears as a
-▶ button on the pipeline page (**CI/CD > Pipelines**) rather than running
-automatically - deliberate, since it pushes to a real server. To make deploys
-automatic on every push to `main` instead, remove the `when: manual` line from the
-`deploy` job in `.gitlab-ci.yml`.
+As written, `deploy` runs automatically after every push to `main` once `build`
+succeeds. To require a manual approval instead, add a
+[GitHub Environment](https://docs.github.com/en/actions/deployment/targeting-different-environments/using-environments-for-deployment)
+named `production` (the `deploy` job already declares `environment: production`)
+with a required reviewer configured under **Settings > Environments** - pushes to
+`main` will then pause at the deploy job until someone approves it in the Actions run.
 
 ### Running the stack locally
 

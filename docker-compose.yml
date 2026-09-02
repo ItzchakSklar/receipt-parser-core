@@ -2,7 +2,7 @@ services:
   backend:
     build:
       context: ./backend
-    image: ${CI_REGISTRY_IMAGE:-smartreceipt}/backend:${TAG:-latest}
+    image: ${IMAGE_BASE:-smartreceipt}/backend:${TAG:-latest}
     restart: unless-stopped
     environment:
       DATABASE_URL: sqlite:////data/smartreceipt.db
@@ -23,7 +23,7 @@ services:
   frontend:
     build:
       context: ./frontend
-    image: ${CI_REGISTRY_IMAGE:-smartreceipt}/frontend:${TAG:-latest}
+    image: ${IMAGE_BASE:-smartreceipt}/frontend:${TAG:-latest}
     restart: unless-stopped
     depends_on:
       - backend

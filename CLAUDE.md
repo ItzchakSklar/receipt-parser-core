@@ -11,7 +11,8 @@ SmartReceipt: a multi-tenant SaaS app for small businesses to upload, OCR-parse,
 - **Backend**: Python 3.11+, FastAPI, SQLAlchemy 2.0 (typed `Mapped[]` models), Pydantic v2, SQLite (dev, swappable for SQL Server via `pyodbc`), python-jose (JWT), bcrypt, uvicorn.
 - **OCR**: `app/services/ocr_service.py` rasterizes every upload to per-page PIL images first (`_load_page_images` — PDFs via PyMuPDF/`pymupdf`, images via Pillow directly), then runs the same recognition engines over those images: Tesseract (`pytesseract`+`Pillow`) → EasyOCR, in that order. This unifies the pipeline so a PDF is held to the same confidence threshold as a photographed receipt, instead of a separate embedded-text-only path. Tesseract+Pillow+PyMuPDF are installed by default; EasyOCR is commented out in `requirements.txt`. Tesseract recognizes Hebrew+English (`heb+eng`) when `heb.traineddata`+`eng.traineddata` are present under `%LOCALAPPDATA%\SmartReceipt\tessdata` (fetched separately — Windows' default Tesseract install ships English only, its own `tessdata` dir isn't writable without admin rights, and the language dir deliberately lives outside the repo checkout since Tesseract's Windows binary reads `--tessdata-dir` via the ANSI codepage and chokes on any non-ASCII character in the path); falls back to English-only if that dir is missing.
 - **Frontend**: React 19, TypeScript, Vite 8, Tailwind CSS v4, axios, recharts (dashboard charts), lucide-react (icons). Package manager is **pnpm** (not npm/yarn).
-- No test suite exists in this repo yet.
+- **Backend tests**: `backend/tests/` (pytest) — health check, auth register/login, and `ocr_service.parse_total_amount` unit tests. `backend/tests/conftest.py` points `app.config.settings` at a throwaway temp-dir SQLite DB/upload dir *before* `app.main` is imported, so tests never touch a developer's real `smartreceipt.db`.
+- **Frontend**: no test runner is configured — CI only typechecks (`tsc -b`). `pnpm lint` is currently broken (no `eslint.config.js` committed, plus several pre-existing `@typescript-eslint/no-explicit-any` errors) — fix both before wiring lint into CI.
 
 ## Commands
 
@@ -19,12 +20,14 @@ Backend (from `backend/`, with venv activated):
 ```bash
 uvicorn app.main:app --reload --port 8000   # dev server, docs at /docs
 python seed.py                               # seed 2 demo businesses (owner@acme.demo / password123)
+pytest                                        # run backend/tests/
+ruff check . && ruff format --check .        # same lint/format gate as CI
 ```
 
 Frontend (from `frontend/`):
 ```bash
 pnpm dev        # dev server at :5173, proxies /api to :8000 (vite.config.ts) — no CORS needed in dev
-pnpm lint       # eslint .
+pnpm lint       # eslint . — currently broken, see above
 pnpm build      # tsc -b && vite build
 pnpm preview
 ```
@@ -64,6 +67,9 @@ If every engine fails or none is installed, `POST /api/invoices/upload` no longe
 
 ### External time
 `GET /api/system/time` proxies WorldTimeAPI to stamp `Invoice.uploaded_at_external_time` and drive the header's live clock. On failure it falls back to local UTC and flags `source: "local_fallback"` rather than erroring.
+
+### CI/CD & Docker
+`.github/workflows/deploy.yml` runs on every push/PR to `main`: `test-backend`/`test-frontend` jobs, then (push to `main` only) `build` pushes `backend/Dockerfile`/`frontend/Dockerfile` images to GHCR, then `deploy` SSHes into a server to `docker compose pull && up -d` the root `docker-compose.yml`. See the README's "GitHub Actions CI/CD Setup" section for required repo secrets. `backend/Dockerfile` installs `tesseract-ocr`+`tesseract-ocr-heb` via apt and copies the trained data into `$LOCALAPPDATA/SmartReceipt/tessdata` (with `LOCALAPPDATA` set to a fixed path) to match the exact directory layout `ocr_service.py` looks for — keep that layout in sync if the lookup path in `ocr_service.py` ever changes.
 
 ## Conventions
 
