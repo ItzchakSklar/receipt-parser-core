@@ -20,7 +20,7 @@ export default function ReceiptFileCard({
   onOpen,
   onContextMenu,
 }: ReceiptFileCardProps) {
-  const isPdf = invoice.file_path.toLowerCase().endsWith('.pdf');
+  const isPdf = invoice.file_name.toLowerCase().endsWith('.pdf');
 
   return (
     <div

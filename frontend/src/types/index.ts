@@ -34,7 +34,8 @@ export interface Invoice {
   invoice_number: string | null;
   category_id: number | null;
   category_name: string | null;
-  file_path: string;
+  file_name: string;
+  file_content_type: string;
   ocr_source: 'ocr' | 'manual';
   is_unrecognized: boolean;
   uploaded_at_external_time: string;
@@ -53,7 +54,7 @@ export interface UnrecognizedSortPayload {
 }
 
 /** The newly-extracted side of a DUPLICATE_CONFLICT response — not yet a saved
- * invoice, just the OCR read plus a reference to the file already on disk. */
+ * invoice, just the OCR read plus a reference to the upload the server is holding. */
 export interface ExtractedReceiptData {
   vendor_name: string;
   amount: number;

@@ -166,7 +166,7 @@ export default function InvoiceExplorer({ refreshKey }: { refreshKey: number }) 
   async function handleDownload(invoice: Invoice) {
     try {
       const { data } = await api.get(`/invoices/${invoice.id}/file`, { responseType: 'blob' });
-      const extension = invoice.file_path.split('.').pop() || 'bin';
+      const extension = invoice.file_name.split('.').pop() || 'bin';
       const safeVendor = invoice.vendor_name.replace(/[^\p{L}\p{N}_-]+/gu, '_') || 'receipt';
       const dateStr = new Date(invoice.date).toISOString().slice(0, 10);
       const url = URL.createObjectURL(data);

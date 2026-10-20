@@ -3,11 +3,8 @@ backend/.venv/
 .venv/
 backend/__pycache__/
 backend/**/__pycache__/
-backend/*.db
 backend/.env
 backend/.env.example
-backend/uploads/*
-!backend/uploads/.gitkeep
 backend/sent_emails/
 
 # Frontend

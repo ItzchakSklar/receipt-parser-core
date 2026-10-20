@@ -8,15 +8,16 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    database_url: str = "sqlite:///./smartreceipt.db"
+    # Hosted Turso (libSQL) database - the only storage for users, invoices and the
+    # receipt files themselves, shared by local dev and every deployment. Required:
+    # sqlite+libsql://<db>-<org>.turso.io/?authToken=<token>
+    database_url: str
 
     secret_key: str = "change-this-super-secret-key-in-production"
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 480
 
     world_time_api_url: str = "http://worldtimeapi.org/api/ip"
-
-    upload_dir: str = "./uploads"
 
     # Render injects PORT at runtime with the port the service must bind to;
     # the 8000 default only applies to local dev (see app/main.py's __main__ block).
@@ -44,12 +45,6 @@ class Settings(BaseSettings):
         if self.frontend_url and self.frontend_url not in origins:
             origins.append(self.frontend_url)
         return origins
-
-    @property
-    def upload_path(self) -> Path:
-        path = Path(self.upload_dir)
-        path.mkdir(parents=True, exist_ok=True)
-        return path
 
     @property
     def sent_email_path(self) -> Path:

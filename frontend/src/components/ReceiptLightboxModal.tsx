@@ -31,7 +31,7 @@ function MetaRow({ icon, label, value }: MetaRowProps) {
 export default function ReceiptLightboxModal({ invoice, onClose }: ReceiptLightboxModalProps) {
   const [objectUrl, setObjectUrl] = useState<string | null>(null);
   const [error, setError] = useState(false);
-  const isPdf = invoice.file_path.toLowerCase().endsWith('.pdf');
+  const isPdf = invoice.file_name.toLowerCase().endsWith('.pdf');
 
   useEffect(() => {
     let url: string | null = null;

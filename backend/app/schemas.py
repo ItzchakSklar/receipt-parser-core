@@ -6,13 +6,7 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field
 # ---------- Auth / Business / User ----------
 
 
-class BusinessCreate(BaseModel):
-    name: str
-    tax_id: str
-
-
 class BusinessOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
     id: int
     name: str
     tax_id: str
@@ -48,12 +42,7 @@ class TokenResponse(BaseModel):
 # ---------- Category ----------
 
 
-class CategoryCreate(BaseModel):
-    name: str
-
-
 class CategoryOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
     id: int
     business_id: int
     name: str
@@ -71,9 +60,10 @@ class InvoiceOut(BaseModel):
     date: datetime
     tax_id: str | None
     invoice_number: str | None = None
-    category_id: int | None
+    category_id: int | None = None
     category_name: str | None = None
-    file_path: str
+    file_name: str
+    file_content_type: str
     ocr_source: str
     is_unrecognized: bool
     uploaded_at_external_time: datetime
@@ -84,19 +74,6 @@ class InvoiceUpdate(BaseModel):
     vendor_name: str | None = Field(default=None, min_length=1)
     amount: float | None = Field(default=None, gt=0)
     date: datetime | None = None
-    tax_id: str | None = None
-    invoice_number: str | None = None
-    category_id: int | None = None
-
-
-class InvoiceConfirmRequest(BaseModel):
-    """Submitted after an upload fails OCR validation (422 INVALID_OCR_DATA) to
-    finalize the invoice with user-confirmed, non-fabricated data."""
-
-    file_reference: str
-    vendor_name: str = Field(min_length=1)
-    amount: float = Field(gt=0)
-    date: datetime
     tax_id: str | None = None
     invoice_number: str | None = None
     category_id: int | None = None
