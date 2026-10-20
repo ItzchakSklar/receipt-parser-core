@@ -5,7 +5,7 @@ services:
     image: ${IMAGE_BASE:-smartreceipt}/backend:${TAG:-latest}
     restart: unless-stopped
     environment:
-      DATABASE_URL: sqlite:////data/smartreceipt.db
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in .env - see README "Switching to Postgres (Neon)"}
       UPLOAD_DIR: /data/uploads
       SENT_EMAIL_DIR: /data/sent_emails
       SECRET_KEY: ${SECRET_KEY:-change-this-super-secret-key-in-production}

@@ -65,6 +65,18 @@ tenants can never see each other's data.
 - Python 3.11+
 - Node.js 18+
 - pnpm 9+ (`corepack enable` will provide it, or `npm install -g pnpm`)
+- A free [Neon](https://neon.tech) Postgres database (see
+  [Switching to Postgres (Neon)](#switching-to-postgres-neon)) - `backend/.env`'s
+  `DATABASE_URL` defaults to one, and there's no local install for it (just a
+  connection string). Local dev and any deployment share the same database.
+- **Optional** - Docker Desktop (running) + [Microsoft ODBC Driver 18 for SQL
+  Server](https://learn.microsoft.com/sql/connect/odbc/download-odbc-driver-for-sql-server)
+  (`pyodbc`, in `requirements.txt`, only speaks ODBC - it doesn't install the driver
+  itself; on Windows: `winget install Microsoft.msodbcsql.18`) - only needed if you
+  want SQL Server instead of Postgres (see [Switching to SQL
+  Server](#switching-to-sql-server)); if nothing is listening on `localhost:1433` in
+  that case, the backend **auto-falls-back to a local SQLite file** instead of
+  crashing.
 
 ## Running the Backend
 
@@ -79,7 +91,24 @@ source .venv/bin/activate
 
 pip install -r requirements.txt
 copy .env.example .env      # Windows: copy, macOS/Linux: cp .env.example .env
+```
 
+`backend/.env`'s `DATABASE_URL` defaults to a hosted Postgres database on
+[Neon](https://neon.tech) - copy the connection string from your Neon project
+dashboard in place of the placeholder (see [Switching to Postgres
+(Neon)](#switching-to-postgres-neon)). This is also what any deployment
+(Docker Compose, Render, ...) should point at, so local dev and production share one
+database instead of drifting apart. Pick a different backend if you want:
+
+- **SQL Server** (self-hosted, e.g. via Docker Compose): see [Switching to SQL
+  Server](#switching-to-sql-server).
+- **SQLite** (zero-config, local-only, not shared with anything else): in
+  `backend/.env`, comment out the `postgresql+psycopg://...` line and uncomment
+  `DATABASE_URL=sqlite:///./smartreceipt.db` instead.
+
+Then:
+
+```bash
 # Optional: seed two demo businesses with sample invoices
 python seed.py
 
@@ -110,14 +139,130 @@ pnpm build
 pnpm preview
 ```
 
+## Switching to Postgres (Neon)
+
+The backend defaults to a hosted Postgres database on [Neon](https://neon.tech)
+(`backend/.env`'s `DATABASE_URL`) - a serverless free tier that needs no local
+install and no firewall/IP allowlisting (unlike Azure SQL), and is reachable from
+both a developer's machine and any deployment. SQL Server and SQLite remain
+available as alternatives (see the commented-out lines in `backend/.env.example`).
+
+### Setup
+
+1. Create a free project at [console.neon.tech](https://console.neon.tech) (any
+   region). Name the database `smartreceipt` if you're asked, or use whatever Neon
+   creates by default (e.g. `neondb`) - the name itself doesn't matter as long as
+   it's consistent everywhere below.
+2. Open the project's **Connection string** in the dashboard and copy the
+   `postgresql://user:password@host/dbname?sslmode=require&channel_binding=require`
+   URL it gives you.
+3. Rewrite it to use SQLAlchemy's driver prefix and set it as `backend/.env`'s
+   `DATABASE_URL`:
+   ```
+   DATABASE_URL=postgresql+psycopg://<user>:<password>@<endpoint>.neon.tech/<dbname>?sslmode=require&channel_binding=require
+   ```
+   (`postgresql://` -> `postgresql+psycopg://`; everything else - including
+   `sslmode=require`/`channel_binding=require` - stays as Neon gave it.)
+4. `psycopg[binary]` (in `requirements.txt`) is the driver that talks to it - a plain
+   `pip install -r requirements.txt` covers it, nothing extra to install locally.
+5. Run the backend as usual (`uvicorn app.main:app --reload`). `Base.metadata.create_all`
+   + `ensure_schema()` ([database.py](backend/app/database.py)) create/update tables
+   the same way they do for SQLite/SQL Server; Neon creates the database itself when
+   you create the project, so there's no separate `ensure_database_exists()` step to
+   run (that function is a no-op for Postgres).
+
+### One database for local dev and deployment
+
+Use the **same** `DATABASE_URL` in `backend/.env` (local dev), the root `.env`
+(Docker Compose - see `.env.example`), and your deployment platform's environment
+variables (e.g. Render's **Environment** tab) so everyone reads/writes the same
+data instead of each environment getting its own empty database. `docker-compose.yml`'s
+`backend` service reads `DATABASE_URL` straight from the root `.env` - no local
+database container is started for it.
+
+Tests are unaffected: `backend/tests/conftest.py` always points `DATABASE_URL` at a
+throwaway SQLite file, regardless of what `backend/.env`/`.env` say.
+
 ## Switching to SQL Server
 
-By default the backend uses a local SQLite file. To use SQL Server instead, install
-`pyodbc` and the Microsoft ODBC Driver, then set in `backend/.env`:
+SQL Server is an alternative backend (self-hosted, e.g. via a `sqlserver` service in
+Docker Compose) if you'd rather not depend on Neon. SQLite is also available as a
+zero-config fallback (see the commented-out lines in `backend/.env.example`).
 
-```
-DATABASE_URL=mssql+pyodbc://user:password@localhost/SmartReceipt?driver=ODBC+Driver+17+for+SQL+Server
-```
+### Auto-fallback when SQL Server isn't running locally
+
+[database.py](backend/app/database.py)'s `_build_engine()` only ever auto-falls-back
+when `DATABASE_URL`'s host is `localhost`/`127.0.0.1`/`::1` **and** nothing answers
+there at startup - the exact situation a fresh clone is in before anyone has run
+`docker compose up -d sqlserver`. In that case it prints a `[database] Could not
+reach SQL Server at localhost:1433 ...` line to the console and switches to
+`sqlite:///./smartreceipt.db` for that run, instead of crashing. It does **not**
+kick in for the Docker Compose stack (whose `backend` service talks to the
+`sqlserver` service by its container name, not `localhost`) or a real deployed DB -
+an outage there still fails loudly on startup, on purpose, so it's never mistaken
+for "everything's fine" with an empty throwaway database in production.
+
+If you see that console line and expected real SQL Server, your data for that run
+is in a plain SQLite file, not the SQL Server instance you configured - fix
+whatever's stopping the connection (see the troubleshooting table below) and
+restart `uvicorn`; nothing carries over automatically between the two.
+
+### Local dev
+
+1. Start a SQL Server container yourself, e.g.:
+   ```bash
+   docker run -e ACCEPT_EULA=Y -e MSSQL_SA_PASSWORD=<pick-a-password> \
+     -p 1433:1433 --name sqlserver -d mcr.microsoft.com/mssql/server:2022-latest
+   ```
+   (`docker-compose.yml` no longer includes a `sqlserver` service - it moved to
+   Neon, see [Switching to Postgres (Neon)](#switching-to-postgres-neon) - so this
+   is a standalone container, not `docker compose up sqlserver`.)
+2. Install the [Microsoft ODBC Driver 18 for SQL Server](https://learn.microsoft.com/sql/connect/odbc/download-odbc-driver-for-sql-server)
+   for your OS - `pyodbc` (in `requirements.txt`) talks to SQL Server through it,
+   and it isn't installed by `pip install`.
+3. Point `backend/.env`'s `DATABASE_URL` at it (already the default):
+   ```
+   DATABASE_URL=mssql+pyodbc://sa:<MSSQL_SA_PASSWORD>@localhost:1433/SmartReceipt?driver=ODBC+Driver+18+for+SQL+Server&TrustServerCertificate=yes
+   ```
+4. Run the backend as usual (`uvicorn app.main:app --reload`). `ensure_database_exists()`
+   ([database.py](backend/app/database.py)) creates the `SmartReceipt` database
+   itself on first connect - no manual `CREATE DATABASE` needed - and
+   `Base.metadata.create_all` + `ensure_schema()` create/update its tables the
+   same way they do for SQLite.
+
+### Docker Compose stack / self-hosted deploy
+
+`docker-compose.yml`'s `backend` service reads `DATABASE_URL` straight from the
+root `.env` - there's no bundled database container to start. To use SQL Server
+here instead of Neon, run your own SQL Server instance (reachable from the
+`backend` container - e.g. a container on the same Docker network, or a separate
+host) and set `.env`'s `DATABASE_URL` to an `mssql+pyodbc://...` URL pointing at
+it, the same way as in [Local dev](#local-dev) above.
+
+Tests are unaffected either way: `backend/tests/conftest.py` always points
+`DATABASE_URL` at a throwaway SQLite file, regardless of what `backend/.env`/`.env`
+say.
+
+### Troubleshooting: backend silently using SQLite / won't start
+
+On `localhost`, the errors below no longer stop `uvicorn` from starting (see
+[Auto-fallback](#auto-fallback-when-sql-server-isnt-running-locally)) - they instead
+print as a `[database] Could not reach SQL Server ...` console line and the backend
+runs on SQLite until you fix the cause and restart. Inside the Docker Compose stack
+(host `sqlserver`, not `localhost`) or against a real deployed DB, these still crash
+`uvicorn` on startup as before.
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| `[database] Could not reach SQL Server ...` on the console, or (inside Docker Compose / production) `pyodbc.InterfaceError: ('IM002', ... Data source name not found and no default driver specified ...)` | The Microsoft ODBC Driver 18 for SQL Server isn't installed on the machine running `uvicorn` (the Python package `pyodbc` only speaks ODBC - it doesn't ship the driver itself). Run `pyodbc.drivers()` in a Python shell to see what's actually installed. | Install it: `winget install Microsoft.msodbcsql.18` (Windows), or see the [download page](https://learn.microsoft.com/sql/connect/odbc/download-odbc-driver-for-sql-server) for macOS/Linux. |
+| Same, with `OperationalError` / `('08001', ...)` mentioning "TCP Provider" or connection refused | Nothing is listening on `localhost:1433` - either Docker Desktop itself isn't running, or the SQL Server container is down. `docker ps` erroring with something like "cannot find the file specified" / "pipe not found" means Docker Desktop is not running. | Start Docker Desktop, then start your SQL Server container (see [Local dev](#local-dev)), then restart `uvicorn`. |
+| Same `('08001', ...)` error, but the host/server name in the message looks mangled (e.g. it has your password's second half stuck to the front of `localhost`) | The SA password contains a URL-reserved character (`@ : / ? #`). `DATABASE_URL` embeds it directly (`mssql+pyodbc://sa:<password>@host:port/...`), and SQLAlchemy's URL parser splits on the *first* `@`/`:`/etc it finds - a password like `Ch@ngeThisPassw0rd` gets cut into password `Ch` and host `ngeThisPassw0rd@localhost`. | Pick a password without those characters (e.g. `ChangeThisPassw0rd!` - the `!` is safe), and make sure it matches whatever you started the container with. If you must keep a reserved character, percent-encode it in the URL only (`@` -> `%40`). |
+| Login/auth error connecting to SQL Server | `sa` password in `backend/.env`'s `DATABASE_URL` doesn't match the password the SQL Server container was actually started with. | Make sure `DATABASE_URL` uses the same password you passed as `MSSQL_SA_PASSWORD` when starting the container, then recreate it (`docker rm -f sqlserver` + the `docker run` command in [Local dev](#local-dev)) if it was already initialized with a different one. |
+
+Quick end-to-end local dev startup if you want real SQL Server, in order: **Docker
+Desktop running** -> start the SQL Server container (see [Local dev](#local-dev)) ->
+ODBC Driver 18 installed -> `uvicorn app.main:app --reload`. If you skip any of
+these, the backend still starts and runs fine on the SQLite fallback instead.
 
 ## OCR Engine (Zero-Hallucination Policy)
 
@@ -261,13 +406,15 @@ have a free tier and neither needs the `.github/workflows/deploy.yml` pipeline
 (each platform builds on its own when you push to `main`).
 
 > **Storage caveat:** Render's free web services use an ephemeral filesystem - the
-> SQLite file (`smartreceipt.db`) and everything under `uploads/` are wiped on every
-> deploy, and on every restart after 15 minutes of inactivity (free services sleep
-> and cold-start on the next request). This is fine for a demo/trial, but for
-> anything real either upgrade to a Render paid plan with a
-> [persistent disk](https://render.com/docs/disks) mounted at `/app` (or wherever
-> `UPLOAD_DIR`/`DATABASE_URL` point), or move to Render's free Postgres + an
-> external object store (S3-compatible) instead of SQLite + local disk.
+> database (if left on the SQLite default) and everything under `uploads/` are wiped
+> on every deploy, and on every restart after 15 minutes of inactivity (free
+> services sleep and cold-start on the next request). Setting `DATABASE_URL` to the
+> Neon connection string (below) solves the database half of this - Neon is external
+> to Render, so that data survives deploys/restarts. `uploads/` is still on Render's
+> local disk and still gets wiped; for anything real, either upgrade to a Render paid
+> plan with a [persistent disk](https://render.com/docs/disks) mounted at `/app` (or
+> wherever `UPLOAD_DIR` points), or move file storage to an external object store
+> (S3-compatible).
 
 ### 1. Backend on Render
 
@@ -283,6 +430,10 @@ have a free tier and neither needs the `.github/workflows/deploy.yml` pipeline
    - **Instance Type**: `Free`
 5. Under **Environment** (or **Advanced > Environment Variables**), add:
    - `SECRET_KEY` - a real random secret (not the placeholder default)
+   - `DATABASE_URL` - the same Neon connection string used in `backend/.env` (see
+     [Switching to Postgres (Neon)](#switching-to-postgres-neon)), so this
+     deployment shares data with local dev instead of getting an empty ephemeral
+     SQLite file (see the storage caveat above)
    - `CORS_ORIGINS` - `http://localhost:5173,http://127.0.0.1:5173` (leave as-is;
      the deployed frontend origin goes in `FRONTEND_URL` below)
    - `FRONTEND_URL` - leave blank for now; you'll set this after step 2 below once
