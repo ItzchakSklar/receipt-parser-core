@@ -5,6 +5,11 @@ pyodbc==5.2.0
 # Postgres driver - used when DATABASE_URL is postgresql+psycopg://... (e.g. a
 # hosted Neon database), see README "Switching to Postgres (Neon)".
 psycopg[binary]==3.2.3
+# Turso (libSQL) driver - used when DATABASE_URL is sqlite+libsql://...&authToken=...
+# (the current default - a hosted Turso database). Pulls in `libsql-experimental`,
+# which has no prebuilt wheel for Windows - installing this locally requires the
+# Microsoft C++ Build Tools (Desktop development with C++) to compile it.
+sqlalchemy-libsql==0.2.0
 pydantic==2.13.5
 pydantic[email]==2.13.5
 pydantic-settings==2.15.0

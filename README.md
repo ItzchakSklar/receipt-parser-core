@@ -375,8 +375,11 @@ The deploy server itself needs, once, ahead of the first deploy:
 - Docker + the Docker Compose plugin installed
 - A `~/smartreceipt/` directory
 - A `~/smartreceipt/.env` file (copy from the repo's root `.env.example` and fill in
-  `SECRET_KEY`, `CORS_ORIGINS`, and SMTP settings) - `docker-compose.yml` reads it for
-  variable substitution
+  `SECRET_KEY`, `DATABASE_URL` (the Neon connection string - see
+  [Switching to Postgres (Neon)](#switching-to-postgres-neon)), `CORS_ORIGINS`, and
+  SMTP settings) - `docker-compose.yml` reads it for variable substitution, and
+  `DATABASE_URL` has no default, so `docker compose up -d` fails on the server
+  without it
 
 ### Triggering deployments
 
