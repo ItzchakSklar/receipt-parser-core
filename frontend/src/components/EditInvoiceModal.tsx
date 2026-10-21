@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 
+import { cachedGet } from '../api/cache';
 import { api } from '../api/client';
 import type { Category, Invoice } from '../types';
 import Modal from './Modal';
@@ -20,9 +21,8 @@ export default function EditInvoiceModal({ invoice, onSaved, onCancel }: EditInv
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    api
-      .get<Category[]>('/categories')
-      .then(({ data }) => setCategories(data))
+    cachedGet<Category[]>('/categories')
+      .then(setCategories)
       .catch(() => {});
   }, []);
 

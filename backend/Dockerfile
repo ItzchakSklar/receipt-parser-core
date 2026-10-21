@@ -21,7 +21,6 @@ COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
-RUN mkdir -p sent_emails
 
 EXPOSE 8000
 # Shell form (not exec-form array) so $PORT - injected by Render at runtime - is

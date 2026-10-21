@@ -1,5 +1,6 @@
 import { useState } from 'react';
 
+import { invalidateResponses } from './api/cache';
 import Dashboard from './components/Dashboard';
 import Header, { type TabId } from './components/Header';
 import InvoiceExplorer from './components/InvoiceExplorer';
@@ -18,7 +19,14 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <Header activeTab={activeTab} onTabChange={setActiveTab} />
+      <Header
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        onRefresh={async () => {
+          await invalidateResponses();
+          setRefreshKey((k) => k + 1);
+        }}
+      />
 
       <main className="max-w-6xl mx-auto px-4 py-6">
         {activeTab === 'dashboard' && <Dashboard refreshKey={refreshKey} />}

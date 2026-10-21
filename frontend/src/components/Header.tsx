@@ -1,4 +1,5 @@
-import { LogOut, Receipt } from 'lucide-react';
+import { LogOut, Receipt, RefreshCw } from 'lucide-react';
+import { useState } from 'react';
 
 import { useAuth } from '../context/AuthContext';
 import LiveClock from './LiveClock';
@@ -14,10 +15,21 @@ export type TabId = (typeof TABS)[number]['id'];
 interface HeaderProps {
   activeTab: TabId;
   onTabChange: (tab: TabId) => void;
+  onRefresh: () => Promise<void>;
 }
 
-export default function Header({ activeTab, onTabChange }: HeaderProps) {
+export default function Header({ activeTab, onTabChange, onRefresh }: HeaderProps) {
   const { business, user, logout } = useAuth();
+  const [refreshing, setRefreshing] = useState(false);
+
+  async function handleRefresh() {
+    setRefreshing(true);
+    try {
+      await onRefresh();
+    } finally {
+      setTimeout(() => setRefreshing(false), 600);
+    }
+  }
 
   return (
     <header className="bg-white border-b border-slate-200 sticky top-0 z-10">
@@ -54,6 +66,14 @@ export default function Header({ activeTab, onTabChange }: HeaderProps) {
             <div className="text-sm font-medium text-slate-700">{user?.email}</div>
             <div className="text-xs text-slate-400 capitalize">{user?.role}</div>
           </div>
+          <button
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="p-2 text-slate-400 hover:text-brand-600 hover:bg-brand-50 rounded-lg transition"
+            title="רענן נתונים מהשרת"
+          >
+            <RefreshCw size={18} className={refreshing ? 'animate-spin' : ''} />
+          </button>
           <button
             onClick={logout}
             className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition"

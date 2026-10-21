@@ -7,23 +7,20 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import Response
-from sqlalchemy import extract, func
+from sqlalchemy import func
 from sqlalchemy.orm import Session, undefer
 
 from app.categories import category_id as to_category_id
 from app.categories import category_name as to_category_name
 from app.database import get_db
 from app.dependencies import get_current_business_id
-from app.models import Invoice, User
+from app.models import Invoice
 from app.schemas import (
     DuplicateResolutionRequest,
     InvoiceOut,
     InvoiceUpdate,
-    MonthlyExportRequest,
-    MonthlyExportResponse,
     UnrecognizedSortRequest,
 )
-from app.services.email_service import send_monthly_report
 from app.services.external_time_service import fetch_external_time, parse_external_datetime
 from app.services.ocr_service import (
     LowConfidenceInfo,
@@ -31,7 +28,6 @@ from app.services.ocr_service import (
     OCRResult,
     parse_invoice,
 )
-from app.services.report_service import build_monthly_csv, build_receipts_zip
 
 router = APIRouter(prefix="/api/invoices", tags=["invoices"])
 
@@ -394,51 +390,6 @@ async def resolve_conflict(
     db.commit()
     db.refresh(existing)
     return _to_invoice_out(existing)
-
-
-@router.post("/export-monthly", response_model=MonthlyExportResponse)
-async def export_monthly(
-    payload: MonthlyExportRequest,
-    business_id: int = Depends(get_current_business_id),
-    db: Session = Depends(get_db),
-):
-    business = db.get(User, business_id)
-
-    invoices = (
-        db.query(Invoice)
-        .filter(
-            Invoice.business_id == business_id,
-            Invoice.is_unrecognized.is_(False),
-            extract("month", Invoice.date) == payload.month,
-            extract("year", Invoice.date) == payload.year,
-        )
-        .order_by(Invoice.date)
-        .options(undefer(Invoice.file_content))
-        .all()
-    )
-
-    total = round(sum(inv.amount for inv in invoices), 2)
-    csv_bytes = build_monthly_csv(business, payload.month, payload.year, invoices)
-    zip_bytes = build_receipts_zip(invoices)
-
-    mode = send_monthly_report(
-        to_email=payload.email,
-        business_name=business.business_name,
-        month=payload.month,
-        year=payload.year,
-        invoice_count=len(invoices),
-        total=total,
-        csv_bytes=csv_bytes,
-        zip_bytes=zip_bytes,
-    )
-
-    return MonthlyExportResponse(
-        status="sent",
-        mode=mode,
-        invoice_count=len(invoices),
-        total=total,
-        recipient=payload.email,
-    )
 
 
 @router.get("", response_model=list[InvoiceOut])

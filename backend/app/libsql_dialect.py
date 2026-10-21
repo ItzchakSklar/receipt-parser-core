@@ -1,3 +1,5 @@
+import re
+
 from sqlalchemy.dialects.sqlite.pysqlite import SQLiteDialect_pysqlite
 from sqlalchemy.pool import QueuePool
 
@@ -36,5 +38,20 @@ class LibSQLDialect(SQLiteDialect_pysqlite):
         return None
 
     def create_connect_args(self, url):
-        auth_token = url.query.get("authToken")
-        return [f"libsql://{url.host}"], {"auth_token": auth_token}
+        # libsql only reports a bad host as an opaque "InvalidUriChar" at first
+        # connect - typically a leftover <db>/<org> placeholder or an invisible
+        # character picked up when pasting the URL into a hosting dashboard.
+        host = (url.host or "").strip()
+        if not _HOST_RE.fullmatch(host):
+            raise ValueError(
+                f"DATABASE_URL host {host!r} is not a valid Turso hostname - expected "
+                "something like 'mydb-myorg.turso.io'. Check for leftover <...> "
+                "placeholders, spaces or invisible characters in the value."
+            )
+        auth_token = (url.query.get("authToken") or "").strip()
+        if not auth_token:
+            raise ValueError("DATABASE_URL is missing its ?authToken=... part.")
+        return [f"libsql://{host}"], {"auth_token": auth_token}
+
+
+_HOST_RE = re.compile(r"[A-Za-z0-9.-]+")

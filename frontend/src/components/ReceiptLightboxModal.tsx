@@ -1,7 +1,7 @@
 import { Calendar, DollarSign, Hash, Store, X } from 'lucide-react';
 import { useEffect, useState, type MouseEvent, type ReactNode } from 'react';
 
-import { api } from '../api/client';
+import { getReceiptFile } from '../api/cache';
 import type { Invoice } from '../types';
 import { formatILS } from '../utils/currency';
 
@@ -37,9 +37,8 @@ export default function ReceiptLightboxModal({ invoice, onClose }: ReceiptLightb
     let url: string | null = null;
     let cancelled = false;
 
-    api
-      .get(`/invoices/${invoice.id}/file`, { responseType: 'blob' })
-      .then(({ data }) => {
+    getReceiptFile(invoice.id)
+      .then((data) => {
         if (cancelled) return;
         url = URL.createObjectURL(data);
         setObjectUrl(url);

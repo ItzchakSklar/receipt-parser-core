@@ -129,23 +129,6 @@ class DashboardStats(BaseModel):
     monthly_totals: list[MonthlyTotal]
 
 
-# ---------- Monthly export ----------
-
-
-class MonthlyExportRequest(BaseModel):
-    email: EmailStr
-    month: int = Field(ge=1, le=12)
-    year: int = Field(ge=2000, le=2100)
-
-
-class MonthlyExportResponse(BaseModel):
-    status: str
-    mode: str
-    invoice_count: int
-    total: float
-    recipient: EmailStr
-
-
 # ---------- External time ----------
 
 
