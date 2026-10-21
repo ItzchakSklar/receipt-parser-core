@@ -10,6 +10,21 @@ CATEGORIES = [
     "Software & Subscriptions",
 ]
 
+# Stored values stay in English so existing invoice rows keep their category; only
+# what the API returns to the (Hebrew-only) UI is translated.
+CATEGORY_LABELS = {
+    "Office Supplies": "ציוד משרדי",
+    "Travel": "נסיעות",
+    "Utilities": "חשבונות ושירותים",
+    "Meals & Entertainment": "ארוחות ואירוח",
+    "Software & Subscriptions": "תוכנה ומנויים",
+}
+UNCATEGORIZED_LABEL = "ללא קטגוריה"
+
+
+def category_label(name: str | None) -> str | None:
+    return CATEGORY_LABELS.get(name, name) if name else None
+
 
 def category_id(name: str | None) -> int | None:
     return CATEGORIES.index(name) + 1 if name in CATEGORIES else None

@@ -3,6 +3,7 @@ import { useCallback, useRef, useState, type DragEvent } from 'react';
 
 import { api } from '../api/client';
 import type { DuplicateConflictDetail, Invoice } from '../types';
+import { formatILS } from '../utils/currency';
 import ConflictResolutionModal from './ConflictResolutionModal';
 import Toast from './Toast';
 
@@ -29,7 +30,7 @@ export default function UploadZone({ onUploaded }: UploadZoneProps) {
 
       if (!ACCEPTED_TYPES.includes(file.type)) {
         setState('error');
-        setMessage('Unsupported file type. Please upload a JPEG, PNG, WEBP or PDF.');
+        setMessage('סוג קובץ לא נתמך. ניתן להעלות תמונה או קובץ PDF.');
         return;
       }
 
@@ -54,7 +55,7 @@ export default function UploadZone({ onUploaded }: UploadZoneProps) {
           setToast("הקובץ נשמר בתיקיית 'לא מזוהים' לבחינה ידנית.");
         } else {
           setState('success');
-          setMessage(`Extracted: ${data.vendor_name} — ${data.amount.toFixed(2)}`);
+          setMessage(`נקלט: ${data.vendor_name} — ${formatILS(data.amount)}`);
         }
         onUploaded(data);
       } catch (err: any) {
@@ -71,7 +72,7 @@ export default function UploadZone({ onUploaded }: UploadZoneProps) {
           return;
         }
         setState('error');
-        setMessage(typeof detail === 'string' ? detail : 'Upload failed. Please try again.');
+        setMessage(typeof detail === 'string' ? detail : 'ההעלאה נכשלה. נסה שוב.');
       }
     },
     [onUploaded],
@@ -91,7 +92,7 @@ export default function UploadZone({ onUploaded }: UploadZoneProps) {
       return;
     }
     setState('success');
-    setMessage(`Updated: ${invoice.vendor_name} — ${invoice.amount.toFixed(2)}`);
+    setMessage(`עודכן: ${invoice.vendor_name} — ${formatILS(invoice.amount)}`);
     onUploaded(invoice);
   }
 
@@ -132,7 +133,7 @@ export default function UploadZone({ onUploaded }: UploadZoneProps) {
 
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
-      <h2 className="text-lg font-semibold text-slate-800 mb-4">Upload Receipt</h2>
+      <h2 className="text-lg font-semibold text-slate-800 mb-4">העלאת קבלה</h2>
 
       <div
         onDragOver={(e) => {
@@ -167,12 +168,10 @@ export default function UploadZone({ onUploaded }: UploadZoneProps) {
 
         <div className="text-center">
           <p className="font-medium text-slate-700">
-            {state === 'uploading'
-              ? 'Processing receipt with OCR...'
-              : 'Drag & drop a receipt here'}
+            {state === 'uploading' ? 'מפענח את הקבלה...' : 'גרור קבלה לכאן'}
           </p>
           <p className="text-sm text-slate-400 mt-1">
-            or click to browse — JPEG, PNG, WEBP, PDF (max 10MB)
+            או לחץ לבחירת קובץ — תמונה או PDF (עד 10 מגה-בייט)
           </p>
         </div>
       </div>
@@ -235,7 +234,7 @@ export default function UploadZone({ onUploaded }: UploadZoneProps) {
       <div className="mt-4 flex items-center gap-2 text-xs text-slate-400">
         <FileText size={14} />
         <span>
-          Vendor, total, and date are extracted automatically. Category defaults to Uncategorized.
+          שם הספק, הסכום והתאריך מזוהים אוטומטית. הקטגוריה נקבעת כברירת מחדל ל"ללא קטגוריה".
         </span>
       </div>
 

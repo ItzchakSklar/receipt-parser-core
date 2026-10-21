@@ -45,7 +45,7 @@ export default function LiveClock() {
     return (
       <div className="flex items-center gap-1.5 text-slate-400 text-sm">
         <WifiOff size={16} />
-        <span>Time unavailable</span>
+        <span>השעה אינה זמינה</span>
       </div>
     );
   }
@@ -55,11 +55,11 @@ export default function LiveClock() {
       <Clock size={16} className="text-brand-600" />
       <div className="leading-tight">
         <div className="font-mono text-sm font-semibold text-slate-800">
-          {displayTime ? displayTime.toLocaleTimeString() : '--:--:--'}
+          {displayTime ? displayTime.toLocaleTimeString('he-IL') : '--:--:--'}
         </div>
         <div className="text-[10px] text-slate-400">
-          {externalTime?.timezone ?? 'syncing...'}
-          {externalTime?.source === 'local_fallback' && ' (local)'}
+          {externalTime ? 'שעון ישראל' : 'מסנכרן...'}
+          {externalTime?.source === 'local_fallback' && ' (מקומי)'}
         </div>
       </div>
     </div>

@@ -1,4 +1,4 @@
-import { Calendar, DollarSign, Hash, Store, X } from 'lucide-react';
+import { Banknote, Calendar, Hash, Store, X } from 'lucide-react';
 import { useEffect, useState, type MouseEvent, type ReactNode } from 'react';
 
 import { getReceiptFile } from '../api/cache';
@@ -78,24 +78,22 @@ export default function ReceiptLightboxModal({ invoice, onClose }: ReceiptLightb
           <button
             type="button"
             onClick={onClose}
-            className="absolute right-3 top-3 z-10 rounded-full bg-black/40 p-2 text-white hover:bg-black/60 transition"
+            className="absolute left-3 top-3 z-10 rounded-full bg-black/40 p-2 text-white hover:bg-black/60 transition"
           >
             <X size={20} />
           </button>
 
           {error && (
-            <p className="px-4 text-center text-sm text-red-300">
-              Could not load the receipt file.
-            </p>
+            <p className="px-4 text-center text-sm text-red-300">לא ניתן לטעון את קובץ הקבלה.</p>
           )}
-          {!error && !objectUrl && <p className="text-sm text-slate-400">Loading...</p>}
+          {!error && !objectUrl && <p className="text-sm text-slate-400">טוען...</p>}
           {objectUrl && isPdf && (
-            <iframe src={objectUrl} title="Receipt PDF" className="h-full w-full" />
+            <iframe src={objectUrl} title="קובץ PDF של הקבלה" className="h-full w-full" />
           )}
           {objectUrl && !isPdf && (
             <img
               src={objectUrl}
-              alt={`Receipt from ${invoice.vendor_name}`}
+              alt={`קבלה מ-${invoice.vendor_name}`}
               className="max-h-full max-w-full object-contain"
             />
           )}
@@ -105,34 +103,30 @@ export default function ReceiptLightboxModal({ invoice, onClose }: ReceiptLightb
           <div>
             <h3 className="text-lg font-semibold text-slate-800">{invoice.vendor_name}</h3>
             {invoice.ocr_source === 'manual' && (
-              <span className="mt-1 inline-block rounded bg-amber-50 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-amber-600">
-                Manually confirmed
+              <span className="mt-1 inline-block rounded bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-600">
+                אושר ידנית
               </span>
             )}
           </div>
 
           <div className="space-y-4">
-            <MetaRow icon={<Store size={16} />} label="Vendor" value={invoice.vendor_name} />
-            <MetaRow
-              icon={<DollarSign size={16} />}
-              label="Total"
-              value={formatILS(invoice.amount)}
-            />
+            <MetaRow icon={<Store size={16} />} label="ספק" value={invoice.vendor_name} />
+            <MetaRow icon={<Banknote size={16} />} label="סכום" value={formatILS(invoice.amount)} />
             <MetaRow
               icon={<Calendar size={16} />}
-              label="Date"
-              value={new Date(invoice.date).toLocaleDateString()}
+              label="תאריך"
+              value={new Date(invoice.date).toLocaleDateString('he-IL')}
             />
-            <MetaRow icon={<Hash size={16} />} label="Tax ID" value={invoice.tax_id ?? '—'} />
+            <MetaRow icon={<Hash size={16} />} label="ח.פ / עוסק" value={invoice.tax_id ?? '—'} />
             <MetaRow
               icon={<Hash size={16} />}
-              label="Invoice #"
+              label="מס' חשבונית"
               value={invoice.invoice_number ?? '—'}
             />
             <MetaRow
               icon={<Store size={16} />}
-              label="Category"
-              value={invoice.category_name ?? 'Uncategorized'}
+              label="קטגוריה"
+              value={invoice.category_name ?? 'ללא קטגוריה'}
             />
           </div>
         </div>

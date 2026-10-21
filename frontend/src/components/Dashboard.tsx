@@ -1,4 +1,4 @@
-import { DollarSign, Hash, Share2, TrendingUp } from 'lucide-react';
+import { Banknote, Hash, Share2, TrendingUp } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import {
   Bar,
@@ -16,6 +16,7 @@ import {
 
 import { cachedGet } from '../api/cache';
 import type { DashboardStats } from '../types';
+import { formatILS } from '../utils/currency';
 import SendToAccountantModal from './SendToAccountantModal';
 
 const CHART_COLORS = ['#6366f1', '#22c55e', '#f59e0b', '#ec4899', '#06b6d4', '#8b5cf6', '#ef4444'];
@@ -58,16 +59,13 @@ export default function Dashboard({ refreshKey }: { refreshKey: number }) {
         className="inline-flex items-center gap-2 bg-white border border-slate-200 hover:border-brand-300 hover:text-brand-700 text-slate-600 text-sm font-medium px-4 py-2 rounded-lg shadow-sm transition"
       >
         <Share2 size={16} />
-        Send to Accountant
-        <span className="text-slate-400" dir="rtl">
-          שלח לרואה חשבון
-        </span>
+        שלח לרואה חשבון
       </button>
     </div>
   );
 
   if (loading) {
-    return <div className="text-center py-16 text-slate-400">Loading dashboard...</div>;
+    return <div className="text-center py-16 text-slate-400">טוען נתונים...</div>;
   }
 
   if (!stats || stats.invoice_count === 0) {
@@ -75,7 +73,7 @@ export default function Dashboard({ refreshKey }: { refreshKey: number }) {
       <div className="space-y-4">
         {exportButton}
         <div className="text-center py-16 bg-white rounded-2xl border border-slate-200">
-          <p className="text-slate-500">No invoices yet. Upload a receipt to see your analytics.</p>
+          <p className="text-slate-500">עדיין אין חשבוניות. העלה קבלה כדי לראות את הנתונים שלך.</p>
         </div>
         {showExportModal && <SendToAccountantModal onClose={() => setShowExportModal(false)} />}
       </div>
@@ -88,21 +86,21 @@ export default function Dashboard({ refreshKey }: { refreshKey: number }) {
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <StatCard
-          icon={<DollarSign size={22} />}
-          label="Total Spent"
-          value={`$${stats.total_spent.toFixed(2)}`}
+          icon={<Banknote size={22} />}
+          label="סך ההוצאות"
+          value={formatILS(stats.total_spent)}
         />
-        <StatCard icon={<Hash size={22} />} label="Invoices" value={String(stats.invoice_count)} />
+        <StatCard icon={<Hash size={22} />} label="חשבוניות" value={String(stats.invoice_count)} />
         <StatCard
           icon={<TrendingUp size={22} />}
-          label="Average Invoice"
-          value={`$${stats.average_invoice.toFixed(2)}`}
+          label="ממוצע לחשבונית"
+          value={formatILS(stats.average_invoice)}
         />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
-          <h3 className="font-semibold text-slate-800 mb-4">Spend by Category</h3>
+          <h3 className="font-semibold text-slate-800 mb-4">הוצאות לפי קטגוריה</h3>
           <ResponsiveContainer width="100%" height={280}>
             <PieChart>
               <Pie
@@ -120,20 +118,20 @@ export default function Dashboard({ refreshKey }: { refreshKey: number }) {
                   />
                 ))}
               </Pie>
-              <Tooltip formatter={(value) => `$${Number(value).toFixed(2)}`} />
+              <Tooltip formatter={(value) => formatILS(Number(value))} />
               <Legend />
             </PieChart>
           </ResponsiveContainer>
         </div>
 
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
-          <h3 className="font-semibold text-slate-800 mb-4">Monthly Spend</h3>
+          <h3 className="font-semibold text-slate-800 mb-4">הוצאות חודשיות</h3>
           <ResponsiveContainer width="100%" height={280}>
             <BarChart data={stats.monthly_totals}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
               <XAxis dataKey="month" tick={{ fontSize: 12 }} />
-              <YAxis tick={{ fontSize: 12 }} />
-              <Tooltip formatter={(value) => `$${Number(value).toFixed(2)}`} />
+              <YAxis tick={{ fontSize: 12 }} tickFormatter={(value) => `₪${value}`} />
+              <Tooltip formatter={(value) => [formatILS(Number(value)), 'סה"כ']} />
               <Bar dataKey="total" fill="#6366f1" radius={[6, 6, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
@@ -141,7 +139,7 @@ export default function Dashboard({ refreshKey }: { refreshKey: number }) {
       </div>
 
       <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
-        <h3 className="font-semibold text-slate-800 mb-4">Category Breakdown</h3>
+        <h3 className="font-semibold text-slate-800 mb-4">פירוט לפי קטגוריה</h3>
         <div className="space-y-2">
           {stats.category_breakdown.map((cat, index) => (
             <div
@@ -156,7 +154,7 @@ export default function Dashboard({ refreshKey }: { refreshKey: number }) {
                 <span className="text-sm text-slate-700">{cat.category_name}</span>
                 <span className="text-xs text-slate-400">({cat.count})</span>
               </div>
-              <span className="text-sm font-semibold text-slate-800">${cat.total.toFixed(2)}</span>
+              <span className="text-sm font-semibold text-slate-800">{formatILS(cat.total)}</span>
             </div>
           ))}
         </div>

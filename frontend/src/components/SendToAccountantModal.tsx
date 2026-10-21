@@ -92,7 +92,7 @@ export default function SendToAccountantModal({
       const name = (err as DOMException)?.name;
       if (name !== 'AbortError') {
         console.error('navigator.share failed', err, files);
-        setError(`השיתוף נכשל (${name ?? 'Error'}). אפשר להוריד את הקובץ ולצרף אותו ידנית.`);
+        setError(`השיתוף נכשל. אפשר להוריד את הקובץ ולצרף אותו ידנית.`);
       }
     }
   }
@@ -110,7 +110,7 @@ export default function SendToAccountantModal({
                 הדוח ל{HEBREW_MONTHS[month - 1]} {year} מוכן
               </p>
               <p className="text-sm text-slate-500">
-                {report.invoiceCount} קבלות · {formatILS(report.total)} · קובץ CSV מסכם
+                {report.invoiceCount} קבלות · {formatILS(report.total)} · קובץ סיכום לאקסל
               </p>
             </div>
 
@@ -191,7 +191,7 @@ export default function SendToAccountantModal({
                   <p className="text-sm font-semibold text-slate-800">
                     {selected.length} קבלות · {formatILS(selectedTotal)}
                   </p>
-                  <p className="text-xs text-slate-400">קובץ CSV מסכם + כל קבצי הקבלות</p>
+                  <p className="text-xs text-slate-400">קובץ סיכום לאקסל + כל קבצי הקבלות</p>
                 </div>
               )}
             </div>

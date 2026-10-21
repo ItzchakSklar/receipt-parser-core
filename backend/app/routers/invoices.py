@@ -11,6 +11,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session, undefer
 
 from app.categories import category_id as to_category_id
+from app.categories import category_label
 from app.categories import category_name as to_category_name
 from app.database import get_db
 from app.dependencies import get_current_business_id
@@ -62,7 +63,7 @@ AMOUNT_TOLERANCE = 0.01
 def _to_invoice_out(invoice: Invoice) -> InvoiceOut:
     data = InvoiceOut.model_validate(invoice)
     data.category_id = to_category_id(invoice.category)
-    data.category_name = invoice.category
+    data.category_name = category_label(invoice.category)
     return data
 
 
@@ -70,7 +71,7 @@ def _resolve_category(category_id: int | None) -> str | None:
     try:
         return to_category_name(category_id)
     except ValueError:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid category_id.") from None
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "קטגוריה לא תקינה.") from None
 
 
 def _hold_pending_upload(
@@ -96,7 +97,7 @@ def _get_pending_upload(business_id: int, file_reference: str) -> _PendingUpload
     read or claim another's pending file by guessing its reference."""
     pending = _pending_uploads.get(file_reference)
     if pending is None or pending.business_id != business_id:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown or expired file_reference.")
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "הקובץ הזמני לא נמצא או שפג תוקפו.")
     return pending
 
 
@@ -236,7 +237,7 @@ def _check_for_duplicate(
             status.HTTP_409_CONFLICT,
             detail={
                 "error": "DUPLICATE_CONFLICT",
-                "message": "An invoice with this vendor and invoice number already exists with different data.",
+                "message": "כבר קיימת חשבונית מאותו ספק ועם אותו מספר חשבונית, אך עם נתונים שונים.",
                 "existing_invoice": _to_invoice_out(duplicate).model_dump(mode="json"),
                 "new_data": {
                     "vendor_name": ocr_result.vendor_name,
@@ -256,7 +257,7 @@ def _check_for_duplicate(
         status.HTTP_409_CONFLICT,
         detail={
             "error": "DUPLICATE_EXISTS",
-            "message": "This receipt is already uploaded to the system.",
+            "message": "הקבלה הזו כבר הועלתה למערכת.",
             "existing_invoice": _to_invoice_out(duplicate).model_dump(mode="json"),
         },
     )
@@ -270,7 +271,8 @@ async def upload_invoice(
 ):
     if file.content_type not in ALLOWED_CONTENT_TYPES:
         raise HTTPException(
-            status.HTTP_400_BAD_REQUEST, "Unsupported file type. Use JPEG, PNG, WEBP or PDF."
+            status.HTTP_400_BAD_REQUEST,
+            "סוג קובץ לא נתמך. ניתן להעלות תמונה או קובץ PDF.",
         )
 
     file_bytes = await file.read()
@@ -281,7 +283,7 @@ async def upload_invoice(
         len(file_bytes),
     )
     if len(file_bytes) > MAX_UPLOAD_BYTES:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "File exceeds 10MB limit.")
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "הקובץ חורג מהגודל המרבי של 10 מגה-בייט.")
 
     # The file is saved regardless of OCR outcome - a failed extraction lands in the
     # "לא מזוהים" folder for manual review rather than being discarded or rejected.
@@ -368,7 +370,7 @@ async def resolve_conflict(
         .first()
     )
     if existing is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Existing invoice not found.")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "החשבונית הקיימת לא נמצאה.")
 
     del _pending_uploads[payload.file_reference]
     if payload.action == "keep_existing":
@@ -445,7 +447,7 @@ def sort_unrecognized_invoice(
         .first()
     )
     if invoice is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unrecognized invoice not found")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "הקובץ הלא מזוהה לא נמצא")
 
     category = _resolve_category(payload.category_id)
 
@@ -475,7 +477,7 @@ def get_invoice(
         .first()
     )
     if invoice is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Invoice not found")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "החשבונית לא נמצאה")
     return _to_invoice_out(invoice)
 
 
@@ -494,7 +496,7 @@ def get_invoice_file(
         .first()
     )
     if invoice is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Invoice not found")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "החשבונית לא נמצאה")
 
     return Response(invoice.file_content, media_type=invoice.file_content_type)
 
@@ -516,7 +518,7 @@ def update_invoice(
         .first()
     )
     if invoice is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Invoice not found")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "החשבונית לא נמצאה")
 
     updates = payload.model_dump(exclude_unset=True)
 
@@ -543,7 +545,7 @@ def delete_invoice(
         .first()
     )
     if invoice is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Invoice not found")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "החשבונית לא נמצאה")
 
     db.delete(invoice)
     db.commit()

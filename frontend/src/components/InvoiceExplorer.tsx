@@ -1,4 +1,4 @@
-import { ChevronRight, Download, FolderInput, Pencil, Share2, Trash2 } from 'lucide-react';
+import { ChevronLeft, Download, FolderInput, Pencil, Share2, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useState, type MouseEvent } from 'react';
 
 import { cachedGet, dropReceiptFile, getReceiptFile } from '../api/cache';
@@ -28,21 +28,6 @@ const HEBREW_MONTHS = [
   'אוקטובר',
   'נובמבר',
   'דצמבר',
-];
-
-const ENGLISH_MONTHS = [
-  'January',
-  'February',
-  'March',
-  'April',
-  'May',
-  'June',
-  'July',
-  'August',
-  'September',
-  'October',
-  'November',
-  'December',
 ];
 
 export default function InvoiceExplorer({ refreshKey }: { refreshKey: number }) {
@@ -188,9 +173,9 @@ export default function InvoiceExplorer({ refreshKey }: { refreshKey: number }) 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <nav className="flex flex-wrap items-center gap-1.5 text-sm text-slate-500">
           <button type="button" onClick={openYearView} className="hover:text-brand-700 font-medium">
-            Root
+            ראשי
           </button>
-          <ChevronRight size={14} className="text-slate-300" />
+          <ChevronLeft size={14} className="text-slate-300" />
           {showUnrecognized ? (
             <span className="font-semibold text-slate-800" dir="rtl">
               לא מזוהים
@@ -210,9 +195,9 @@ export default function InvoiceExplorer({ refreshKey }: { refreshKey: number }) 
               </button>
               {selectedMonth !== null && (
                 <>
-                  <ChevronRight size={14} className="text-slate-300" />
+                  <ChevronLeft size={14} className="text-slate-300" />
                   <span className="font-semibold text-slate-800">
-                    {ENGLISH_MONTHS[selectedMonth - 1]}
+                    {HEBREW_MONTHS[selectedMonth - 1]}
                   </span>
                 </>
               )}
@@ -244,7 +229,7 @@ export default function InvoiceExplorer({ refreshKey }: { refreshKey: number }) 
       </div>
 
       {loading ? (
-        <p className="text-center text-slate-400 py-16">Loading...</p>
+        <p className="text-center text-slate-400 py-16">טוען...</p>
       ) : showUnrecognized ? (
         <div className="space-y-4">
           <p className="text-sm text-slate-400" dir="rtl">
@@ -288,7 +273,7 @@ export default function InvoiceExplorer({ refreshKey }: { refreshKey: number }) 
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <p className="text-sm text-slate-400">
-              {filesInMonth.length} {filesInMonth.length === 1 ? 'receipt' : 'receipts'}
+              {filesInMonth.length === 1 ? 'קבלה אחת' : `${filesInMonth.length} קבלות`}
             </p>
             <button
               type="button"
@@ -296,17 +281,14 @@ export default function InvoiceExplorer({ refreshKey }: { refreshKey: number }) 
               className="inline-flex items-center gap-2 bg-white border border-slate-200 hover:border-brand-300 hover:text-brand-700 text-slate-600 text-sm font-medium px-4 py-2 rounded-lg shadow-sm transition"
             >
               <Share2 size={16} />
-              Send Month to Accountant
-              <span className="text-slate-400" dir="rtl">
-                שלח חודש זה לרואה חשבון
-              </span>
+              שלח חודש זה לרואה חשבון
             </button>
           </div>
 
           {filesInMonth.length === 0 ? (
             <div className="text-center py-16 bg-white rounded-2xl border border-slate-200">
               <p className="text-slate-500">
-                No receipts in {ENGLISH_MONTHS[selectedMonth - 1]} {selectedYear}.
+                אין קבלות ב{HEBREW_MONTHS[selectedMonth - 1]} {selectedYear}.
               </p>
             </div>
           ) : (

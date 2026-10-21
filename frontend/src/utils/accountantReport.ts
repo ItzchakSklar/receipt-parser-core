@@ -58,25 +58,25 @@ export function invoicesInMonth(invoices: Invoice[], month: number, year: number
 
 function buildCsv(business: Business | null, period: string, invoices: Invoice[], total: number) {
   const rows = [
-    ['SmartReceipt Monthly Expense Report'],
-    [`Business: ${business?.name ?? ''}`, `Tax ID: ${business?.tax_id ?? ''}`],
-    [`Period: ${period}`],
+    ['SmartReceipt - דוח הוצאות חודשי'],
+    [`עסק: ${business?.name ?? ''}`, `ח.פ: ${business?.tax_id ?? ''}`],
+    [`תקופה: ${period}`],
     [],
-    ['Date', 'Vendor', 'Category', 'Tax ID', 'Amount', 'Source'],
+    ['תאריך', 'ספק', 'קטגוריה', 'ח.פ / עוסק', 'סכום (₪)', 'מקור'],
     ...invoices.map((inv) => [
       localDate(inv.date),
       inv.vendor_name,
-      inv.category_name ?? 'Uncategorized',
+      inv.category_name ?? 'ללא קטגוריה',
       inv.tax_id ?? '',
       inv.amount.toFixed(2),
-      inv.ocr_source,
+      inv.ocr_source === 'manual' ? 'ידני' : 'זיהוי אוטומטי',
     ]),
     [],
-    ['', '', '', 'Total', total.toFixed(2)],
+    ['', '', '', 'סה"כ', total.toFixed(2)],
   ];
   const text = rows.map((row) => row.map(csvCell).join(',')).join('\r\n');
   // BOM so Excel renders the Hebrew vendor names correctly.
-  return new File(['﻿' + text], `expenses-${period}.csv`, { type: 'text/csv' });
+  return new File(['﻿' + text], `הוצאות-${period}.csv`, { type: 'text/csv' });
 }
 
 export async function buildAccountantReport(
@@ -105,7 +105,7 @@ export async function buildAccountantReport(
   for (const file of files) {
     entries[file.name] = new Uint8Array(await file.arrayBuffer());
   }
-  const zipName = `${safeName(business?.name ?? 'SmartReceipt')}-expenses-${period}.zip`;
+  const zipName = `${safeName(business?.name ?? 'SmartReceipt')}-הוצאות-${period}.zip`;
   const zip = new File([zipSync(entries, { level: 6 }) as Uint8Array<ArrayBuffer>], zipName, {
     type: 'application/zip',
   });
