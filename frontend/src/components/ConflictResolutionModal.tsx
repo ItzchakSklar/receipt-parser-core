@@ -6,9 +6,11 @@ import { api } from '../api/client';
 import type { DuplicateConflictDetail, Invoice } from '../types';
 import { formatILS } from '../utils/currency';
 
+export type ConflictAction = 'keep_existing' | 'update_with_new' | 'keep_both';
+
 interface ConflictResolutionModalProps {
   conflict: DuplicateConflictDetail;
-  onResolved: (result: { action: 'keep_existing' | 'update_with_new'; invoice: Invoice }) => void;
+  onResolved: (result: { action: ConflictAction; invoice: Invoice }) => void;
   onClose: () => void;
 }
 
@@ -93,7 +95,7 @@ export default function ConflictResolutionModal({
   onClose,
 }: ConflictResolutionModalProps) {
   const { existing_invoice: existing, new_data: newData } = conflict;
-  const [submitting, setSubmitting] = useState<'keep_existing' | 'update_with_new' | null>(null);
+  const [submitting, setSubmitting] = useState<ConflictAction | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const existingIsPdf = existing.file_name.toLowerCase().endsWith('.pdf');
@@ -119,7 +121,7 @@ export default function ConflictResolutionModal({
     e.stopPropagation();
   }
 
-  async function resolve(action: 'keep_existing' | 'update_with_new') {
+  async function resolve(action: ConflictAction) {
     setSubmitting(action);
     setError(null);
     try {
@@ -167,8 +169,8 @@ export default function ConflictResolutionModal({
 
         <div className="flex-1 overflow-y-auto px-6 py-5">
           <p className="mb-4 text-sm text-slate-500">
-            נמצאה חשבונית קיימת מספק דומה ועם אותו מספר חשבונית, אך הנתונים של הקובץ החדש שונים. בחר
-            איזו גרסה לשמור.
+            נמצאה חשבונית קיימת מספק דומה שנראית כמו אותה קבלה, אך חלק מהנתונים שונים (ההבדלים
+            מסומנים). בחר איזו גרסה נכונה — או שמור את שתיהן אם אלה באמת שתי קבלות נפרדות.
           </p>
 
           <div className="grid grid-cols-2 gap-4">
@@ -229,7 +231,7 @@ export default function ConflictResolutionModal({
           {error && <p className="mt-4 text-sm text-red-600">{error}</p>}
         </div>
 
-        <div className="flex gap-3 border-t border-slate-100 px-6 py-4">
+        <div className="flex flex-wrap gap-3 border-t border-slate-100 px-6 py-4">
           <button
             type="button"
             disabled={submitting !== null}
@@ -245,6 +247,14 @@ export default function ConflictResolutionModal({
             className="flex-1 rounded-lg bg-brand-600 py-2.5 font-medium text-white transition hover:bg-brand-700 disabled:opacity-60"
           >
             {submitting === 'update_with_new' ? 'מעדכן...' : 'עדכן לחשבונית החדשה'}
+          </button>
+          <button
+            type="button"
+            disabled={submitting !== null}
+            onClick={() => resolve('keep_both')}
+            className="flex-1 rounded-lg border border-slate-300 py-2.5 font-medium text-slate-600 transition hover:bg-slate-50 disabled:opacity-60"
+          >
+            {submitting === 'keep_both' ? 'שומר...' : 'שמור את שתיהן'}
           </button>
         </div>
       </div>

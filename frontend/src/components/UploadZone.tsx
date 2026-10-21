@@ -17,7 +17,7 @@ import { api } from '../api/client';
 import type { DuplicateConflictDetail, Invoice } from '../types';
 import { formatILS } from '../utils/currency';
 import CompleteReceiptForm from './CompleteReceiptForm';
-import ConflictResolutionModal from './ConflictResolutionModal';
+import ConflictResolutionModal, { type ConflictAction } from './ConflictResolutionModal';
 
 interface UploadZoneProps {
   onUploaded: (invoice: Invoice) => void;
@@ -174,7 +174,7 @@ export default function UploadZone({ onUploaded, onViewInvoices }: UploadZonePro
     action,
     invoice,
   }: {
-    action: 'keep_existing' | 'update_with_new';
+    action: ConflictAction;
     invoice: Invoice;
   }) {
     setConflict(null);
