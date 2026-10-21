@@ -34,10 +34,8 @@ export default function App() {
         {activeTab === 'upload' && (
           <div className="max-w-xl mx-auto">
             <UploadZone
-              onUploaded={() => {
-                setRefreshKey((k) => k + 1);
-                setActiveTab('invoices');
-              }}
+              onUploaded={() => setRefreshKey((k) => k + 1)}
+              onViewInvoices={() => setActiveTab('invoices')}
             />
           </div>
         )}

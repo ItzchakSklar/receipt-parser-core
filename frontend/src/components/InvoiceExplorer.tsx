@@ -126,9 +126,18 @@ export default function InvoiceExplorer({ refreshKey }: { refreshKey: number }) 
     setEditingInvoice(null);
   }
 
+  // `sorted` is either the reviewed row itself, or an existing invoice it replaced in a
+  // duplicate conflict - so remove the reviewed row and upsert whichever came back.
   function handleInvoiceSorted(sorted: Invoice) {
-    setUnrecognized((prev) => prev.filter((inv) => inv.id !== sorted.id));
-    setInvoices((prev) => [sorted, ...prev]);
+    const reviewedId = reviewingInvoice?.id;
+    setUnrecognized((prev) => prev.filter((inv) => inv.id !== reviewedId));
+    setInvoices((prev) => [sorted, ...prev.filter((inv) => inv.id !== sorted.id)]);
+    setReviewingInvoice(null);
+  }
+
+  function handleReviewedDeleted() {
+    const reviewedId = reviewingInvoice?.id;
+    setUnrecognized((prev) => prev.filter((inv) => inv.id !== reviewedId));
     setReviewingInvoice(null);
   }
 
@@ -379,6 +388,7 @@ export default function InvoiceExplorer({ refreshKey }: { refreshKey: number }) 
         <UnrecognizedReviewModal
           invoice={reviewingInvoice}
           onSorted={handleInvoiceSorted}
+          onDeleted={handleReviewedDeleted}
           onClose={() => setReviewingInvoice(null)}
         />
       )}

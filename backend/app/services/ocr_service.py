@@ -5,7 +5,7 @@ rasterized to one PIL Image per page (see `_load_page_images`) and run through t
 same recognition engines - pytesseract, then EasyOCR - so a PDF is held to exactly the
 same confidence threshold and field extraction as a photographed receipt image, instead
 of a separate embedded-text-only code path with no confidence signal. A result is
-returned only when the critical fields (vendor, amount, date, tax id) were actually
+returned only when the critical fields (vendor, amount, date) were actually
 read with acceptable confidence. If no backend is installed, the file is unreadable, or
 confidence is too low, `parse_invoice` raises `OCRLowConfidenceError` instead of
 returning fabricated data - callers must ask the user to re-upload a clearer file or
@@ -20,7 +20,9 @@ from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 
-REQUIRED_FIELDS = ["vendor_name", "amount", "date", "tax_id"]
+# tax_id is extracted when printed but not required - plenty of real receipts leave the
+# ע"מ/ח"פ field blank, and requiring it rejected otherwise fully-read receipts.
+REQUIRED_FIELDS = ["vendor_name", "amount", "date"]
 CONFIDENCE_THRESHOLD = 60.0  # percent; below this an OCR engine's read is not trusted
 
 # Matches an Israeli company/business tax id (ח"פ) - 9 digits.
@@ -39,6 +41,15 @@ INVOICE_NUMBER_PATTERN = re.compile(
     r"מספר\s*חשבונית|חשבונית\s*מס\'?|אסמכתא)\s*[:\-=]?\s*([A-Za-z0-9\-/]*\d[A-Za-z0-9\-/]{0,29})",
     re.IGNORECASE,
 )
+# Fallback for the common Israeli layout "חשבונית מס ... מספר 66614", where OCR splits
+# the "חשבונית מס" label from the number. Only a bare "מספר" immediately followed by
+# digits - "מספר לקוח 666" / "מספר פריט" have a word in between and don't match.
+_BARE_NUMBER_PATTERN = re.compile(r"מספר\s*[:\-]?\s*(\d{3,})")
+
+# Vendor lines usually carry a legal-entity suffix; preferred over the first line,
+# which on a letterhead is often an address/phone line or a logo read as text.
+_VENDOR_SUFFIX_PATTERN = re.compile(r'בע"?מ|בע״מ|\bltd\b|\binc\b', re.IGNORECASE)
+_VENDOR_SEARCH_LINES = 8
 
 # Currency-aware amount, e.g. "ILS 18,427.50", "₪18427.5", "$120".
 _AMOUNT_PATTERNS_BY_PRIORITY = (
@@ -89,7 +100,8 @@ def parse_total_amount(text: str) -> float | None:
 
     lines = text.strip().split("\n")
     bottom_text = " ".join(lines[-max(1, int(len(lines) * 0.4)) :])
-    all_numbers = re.findall(r"[\d,]+\.\d{2}", bottom_text)
+    # Not followed by "%" - "מע"מ 16.00%" is a rate, not the total.
+    all_numbers = re.findall(r"(?<![\d.,])[\d,]+\.\d{2}(?!\d|\s*%)", bottom_text)
     if all_numbers:
         return max(float(n.replace(",", "")) for n in all_numbers)
 
@@ -101,6 +113,7 @@ _ERROR_MESSAGES = {
     "missing_fields": "Some required fields could not be read reliably from the receipt.",
     "low_confidence": "The receipt image quality was too low to extract data reliably.",
     "engine_error": "The OCR engine failed to process this file.",
+    "corrupt_file": "The file is corrupt or could not be opened.",
 }
 
 
@@ -109,7 +122,7 @@ class OCRResult:
     vendor_name: str
     amount: float
     date: date
-    tax_id: str
+    tax_id: str | None
     raw_text: str
     engine: str
     invoice_number: str | None = None
@@ -138,19 +151,34 @@ class OCRLowConfidenceError(Exception):
         super().__init__(info.reason)
 
 
+def _pick_vendor_line(lines: list[str]) -> str | None:
+    if not lines:
+        return None
+    head = lines[:_VENDOR_SEARCH_LINES]
+    line = next((ln for ln in head if _VENDOR_SUFFIX_PATTERN.search(ln)), lines[0])
+    # Drop short letterless OCR debris trailing the name, e.g. 'בע"מ 2-' / 'בע"מ 0'.
+    words = line.split()
+    while len(words) > 1 and len(words[-1]) <= 2 and not any(c.isalpha() for c in words[-1]):
+        words.pop()
+    return " ".join(words)
+
+
 def _extract_candidate_fields(text: str) -> dict:
     """Best-effort field extraction from OCR/PDF text. Returns only what it actually
     found - never fills in placeholders for fields it could not locate."""
     candidate: dict = {}
     lines = [line.strip() for line in text.splitlines() if line.strip()]
-    if lines:
-        candidate["vendor_name"] = lines[0]
+    vendor = _pick_vendor_line(lines)
+    if vendor:
+        candidate["vendor_name"] = vendor
 
     tax_match = TAX_ID_PATTERN.search(text)
     if tax_match:
         candidate["tax_id"] = tax_match.group(0)
 
     invoice_number_match = INVOICE_NUMBER_PATTERN.search(text)
+    if invoice_number_match is None:
+        invoice_number_match = _BARE_NUMBER_PATTERN.search(text)
     if invoice_number_match:
         candidate["invoice_number"] = invoice_number_match.group(1).strip()
 
@@ -177,7 +205,7 @@ def _candidate_to_result(candidate: dict, text: str, engine: str) -> OCRResult:
         vendor_name=candidate["vendor_name"],
         amount=candidate["amount"],
         date=candidate["date"],
-        tax_id=candidate["tax_id"],
+        tax_id=candidate.get("tax_id"),
         raw_text=text,
         engine=engine,
         invoice_number=candidate.get("invoice_number"),
@@ -307,6 +335,15 @@ def _load_page_images(file_bytes: bytes, content_type: str | None) -> list | Non
     return None
 
 
+def _text_from_tesseract_data(data: dict) -> str:
+    lines: dict[tuple[int, int, int], list[str]] = {}
+    for i, word in enumerate(data.get("text", [])):
+        if str(word).strip():
+            key = (data["block_num"][i], data["par_num"][i], data["line_num"][i])
+            lines.setdefault(key, []).append(str(word))
+    return "\n".join(" ".join(words) for words in lines.values())
+
+
 def _try_tesseract(images: list) -> tuple[OCRResult | None, LowConfidenceInfo | None]:
     try:
         import shutil
@@ -331,15 +368,18 @@ def _try_tesseract(images: list) -> tuple[OCRResult | None, LowConfidenceInfo | 
             page_texts = []
             confidences: list[int] = []
             for page_num, image in enumerate(images, start=1):
-                page_text = pytesseract.image_to_string(image, lang=_TESSERACT_LANG, config=config)
-                page_texts.append(page_text)
-                print(f"[ocr_service] tesseract psm={psm} page={page_num} raw_text={page_text!r}")
+                # One image_to_data pass yields both the words and their confidences;
+                # a separate image_to_string pass ran the whole recognition again just
+                # for the text, doubling the time per page (20-50s each on a noisy photo).
                 data = pytesseract.image_to_data(
                     image,
                     lang=_TESSERACT_LANG,
                     config=config,
                     output_type=pytesseract.Output.DICT,
                 )
+                page_text = _text_from_tesseract_data(data)
+                page_texts.append(page_text)
+                print(f"[ocr_service] tesseract psm={psm} page={page_num} raw_text={page_text!r}")
                 confidences.extend(
                     int(c)
                     for c in data.get("conf", [])
@@ -448,7 +488,7 @@ def parse_invoice(filename: str, file_bytes: bytes, content_type: str | None) ->
         )
         images = None
         engine = "pymupdf" if content_type == "application/pdf" else "pillow"
-        attempts.append(LowConfidenceInfo(reason="engine_error", engine=engine))
+        attempts.append(LowConfidenceInfo(reason="corrupt_file", engine=engine))
     else:
         print(
             f"[ocr_service] {filename!r} opened successfully: "

@@ -97,16 +97,22 @@ export default function ConflictResolutionModal({
   const [error, setError] = useState<string | null>(null);
 
   const existingIsPdf = existing.file_name.toLowerCase().endsWith('.pdf');
-  const newIsPdf = newData.file_reference.toLowerCase().endsWith('.pdf');
+  const newIsPdf = (newData.file_name ?? newData.file_reference ?? '')
+    .toLowerCase()
+    .endsWith('.pdf');
 
   const existingImage = useReceiptPreview(`existing-${existing.id}`, () =>
     getReceiptFile(existing.id).then((data) => ({ data })),
   );
-  const newImage = useReceiptPreview(`new-${newData.file_reference}`, () =>
-    api.get('/invoices/file-preview', {
-      params: { file_reference: newData.file_reference },
-      responseType: 'blob',
-    }),
+  const newImage = useReceiptPreview(
+    `new-${newData.file_reference ?? newData.new_invoice_id}`,
+    () =>
+      newData.new_invoice_id != null
+        ? getReceiptFile(newData.new_invoice_id).then((data) => ({ data }))
+        : api.get('/invoices/file-preview', {
+            params: { file_reference: newData.file_reference },
+            responseType: 'blob',
+          }),
   );
 
   function stopPropagation(e: MouseEvent) {
@@ -121,6 +127,7 @@ export default function ConflictResolutionModal({
         action,
         existing_invoice_id: existing.id,
         file_reference: newData.file_reference,
+        new_invoice_id: newData.new_invoice_id,
         vendor_name: newData.vendor_name,
         amount: newData.amount,
         date: newData.date,
@@ -128,6 +135,7 @@ export default function ConflictResolutionModal({
         invoice_number: newData.invoice_number,
       });
       if (action === 'update_with_new') await dropReceiptFile(existing.id);
+      if (newData.new_invoice_id != null) await dropReceiptFile(newData.new_invoice_id);
       onResolved({ action, invoice: data });
     } catch {
       setError('הפעולה נכשלה. נסה שוב.');
@@ -159,8 +167,8 @@ export default function ConflictResolutionModal({
 
         <div className="flex-1 overflow-y-auto px-6 py-5">
           <p className="mb-4 text-sm text-slate-500">
-            נמצאה חשבונית קיימת מאותו ספק ועם אותו מספר חשבונית, אך הנתונים שחולצו מהקובץ החדש
-            שונים. בחר איזו גרסה לשמור.
+            נמצאה חשבונית קיימת מספק דומה ועם אותו מספר חשבונית, אך הנתונים של הקובץ החדש שונים. בחר
+            איזו גרסה לשמור.
           </p>
 
           <div className="grid grid-cols-2 gap-4">

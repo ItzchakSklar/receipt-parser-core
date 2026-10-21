@@ -40,6 +40,15 @@ export interface Invoice {
   is_unrecognized: boolean;
   uploaded_at_external_time: string;
   created_at: string;
+  /** Only on the POST /invoices/upload response for an unrecognized file. */
+  ocr_reason?:
+    | 'corrupt_file'
+    | 'low_confidence'
+    | 'missing_fields'
+    | 'engine_error'
+    | 'no_ocr_engine_available'
+    | null;
+  ocr_missing_fields?: string[];
 }
 
 /** Payload for POST /invoices/unrecognized/{id}/sort, submitted from the "לא מזוהים"
@@ -53,15 +62,19 @@ export interface UnrecognizedSortPayload {
   category_id: number | null;
 }
 
-/** The newly-extracted side of a DUPLICATE_CONFLICT response — not yet a saved
- * invoice, just the OCR read plus a reference to the upload the server is holding. */
+/** The new side of a DUPLICATE_CONFLICT response — not yet a saved invoice, just the
+ * OCR read (or the user's completed fields) plus a reference to where its file is. */
 export interface ExtractedReceiptData {
   vendor_name: string;
   amount: number;
   date: string;
   tax_id: string | null;
   invoice_number: string | null;
-  file_reference: string;
+  file_name?: string;
+  /** Set when the new side is an upload the server is holding in memory... */
+  file_reference?: string;
+  /** ...or when it's an unrecognized row whose manual completion collided. */
+  new_invoice_id?: number;
 }
 
 export interface DuplicateExistsDetail {
