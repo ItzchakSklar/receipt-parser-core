@@ -45,8 +45,10 @@ receipt-parser-core/
 |   |   |-- App.tsx                  Tab layout (Dashboard / Upload / Invoices)
 |   |   |-- context/AuthContext.tsx
 |   |   |-- api/client.ts            Axios instance with JWT interceptor (VITE_API_BASE_URL)
+|   |   |-- api/cache.ts             IndexedDB cache for API responses + receipt files
 |   |   |-- types/index.ts
 |   |   |-- utils/currency.ts        Shared amount formatting
+|   |   |-- utils/accountantReport.ts Monthly report (CSV + receipts zip) built in the browser
 |   |   |-- components/
 |   |       |-- Header.tsx                  Nav + live clock + user menu
 |   |       |-- LiveClock.tsx               Live external-time widget
@@ -91,8 +93,8 @@ it (see `app/dependencies.py`), so tenants can never see each other's data.
 ## Prerequisites
 
 - Python 3.11+
-- Node.js 18+
-- pnpm 9+ (`corepack enable` will provide it, or `npm install -g pnpm`)
+- Node.js 20.19+ or 22.12+ (required by Vite 8; CI uses 22)
+- pnpm 10 (`corepack enable` picks up the version pinned in `frontend/package.json`)
 - A free [Turso](https://turso.tech) database (see [Database (Turso)](#database-turso))
   - there's no local install for it, just a URL + token. Local dev and any
   deployment share the same database.
@@ -214,7 +216,8 @@ the file explorer's right-click "Edit Details" action (`PUT /api/invoices/{id}`)
 
 `pytesseract`, `Pillow` and `pymupdf` are installed by `requirements.txt`; EasyOCR is
 commented out there (it's large) - uncomment and `pip install` it to enable it. The
-Tesseract **binary** itself must also be installed and on your `PATH`.
+Tesseract **binary** itself must also be installed - on your `PATH`, or (Windows) at
+the default `C:\Program Files\Tesseract-OCR\tesseract.exe`.
 
 For Hebrew + English recognition (`heb+eng`), place `heb.traineddata` and
 `eng.traineddata` (from [tessdata](https://github.com/tesseract-ocr/tessdata)) in
@@ -236,12 +239,16 @@ fetches this endpoint as a blob and renders it as an `<img>` (JPEG/PNG/WEBP) or
 Original File", which fetches the same endpoint and saves it locally.
 `DELETE /api/invoices/{id}` removes the row, file included.
 
-An upload that collides with an existing invoice (409 `DUPLICATE_CONFLICT` - matched
-by tax id / invoice number / vendor+amount+date) isn't saved until the user resolves
-the conflict in the conflict dialog (`POST /api/invoices/resolve-conflict`; the held
-file is previewable via `GET /api/invoices/file-preview`). Meanwhile it's held in the
-backend's memory for up to an hour, so it's lost if the backend restarts before the
-user decides.
+Duplicate uploads are caught before saving (both as HTTP 409):
+
+- `DUPLICATE_EXISTS` - the same receipt is already saved (same vendor + invoice number
+  with identical amount/date, or same vendor + tax id + amount + date). The upload is
+  rejected.
+- `DUPLICATE_CONFLICT` - same vendor + invoice number, but different amount/date. The
+  upload isn't saved until the user picks a version in the conflict dialog
+  (`POST /api/invoices/resolve-conflict`; the held file is previewable via
+  `GET /api/invoices/file-preview`). Meanwhile it's held in the backend's memory for up
+  to an hour, so it's lost if the backend restarts before the user decides.
 
 ## Tests & Code Quality
 
@@ -263,10 +270,18 @@ The frontend has no test runner; CI typechecks it with `tsc -b` (part of
 ## Monthly Accountant Export
 
 The **Send to Accountant** (שלח לרואה חשבון) button builds the month's report in the
-browser - a CSV summary plus the original receipt files - and opens the device's share
-sheet (WhatsApp, email, etc.), or downloads it as a zip where sharing isn't supported.
-No email service or server configuration is needed; see
-`frontend/src/utils/accountantReport.ts`.
+browser - a CSV summary plus the original receipt files. It can be shared through the
+device's share sheet (WhatsApp, email, etc.) as individual files, or downloaded as one
+zip. Sharing is only offered when the browser supports it and the files fit its limits
+(at most 10 files / 50MB); otherwise it's download-only. No email service or server
+configuration is needed; see `frontend/src/utils/accountantReport.ts`.
+
+## Client-Side Cache
+
+`frontend/src/api/cache.ts` caches GET responses and receipt files in IndexedDB (per
+business, 24h expiry), so revisiting a page or a receipt usually needs no server call.
+Any successful change (upload, edit, delete, ...) clears the cached responses. To pick
+up changes made on another device, use the refresh button in the header.
 
 ## External Time (WorldTimeAPI)
 
@@ -375,7 +390,7 @@ have a free tier and neither needs the `.github/workflows/deploy.yml` pipeline
    - `FRONTEND_URL` - leave blank for now; you'll set this after step 2 below once
      the Vercel URL exists
    - Do **not** set `PORT` - Render injects it automatically and
-     `backend/Dockerfile`'s `CMD` and `app/main.py` both already read it
+     `backend/Dockerfile`'s `CMD` already binds to it
 6. Click **Create Web Service**. Render builds the Dockerfile and gives you a URL
    like `https://smartreceipt-backend.onrender.com` - copy it, you'll need it for
    the frontend. Check `https://<that-url>/api/health` returns `{"status": "ok"}`.
@@ -394,7 +409,7 @@ have a free tier and neither needs the `.github/workflows/deploy.yml` pipeline
      URL from step 1.6, with `/api` appended)
 5. Click **Deploy**. Vercel builds with `pnpm build` and serves `frontend/dist`;
    `frontend/vercel.json` (already in the repo) rewrites every route to
-   `index.html` so refreshing a client-side route (e.g. `/dashboard`) doesn't 404.
+   `index.html`, so any path on the deployed site serves the app instead of a 404.
 6. Copy the resulting URL. The production deployment of this repo lives at
    <https://receipt-parser-core.vercel.app/>.
 
