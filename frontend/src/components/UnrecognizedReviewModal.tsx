@@ -20,7 +20,7 @@ export default function UnrecognizedReviewModal({
 }: UnrecognizedReviewModalProps) {
   const [objectUrl, setObjectUrl] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState(false);
-  const isPdf = invoice.file_path.toLowerCase().endsWith('.pdf');
+  const isPdf = invoice.file_name.toLowerCase().endsWith('.pdf');
 
   const [vendorName, setVendorName] = useState('');
   const [amount, setAmount] = useState('');

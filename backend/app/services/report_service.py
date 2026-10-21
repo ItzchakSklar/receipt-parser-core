@@ -4,23 +4,22 @@ original receipt files, for one business/month/year."""
 import csv
 import io
 import zipfile
-from pathlib import Path
 
-from app.models import Business, Invoice
+from app.models import Invoice, User
 
 
-def build_monthly_csv(business: Business, month: int, year: int, invoices: list[Invoice]) -> bytes:
+def build_monthly_csv(business: User, month: int, year: int, invoices: list[Invoice]) -> bytes:
     buffer = io.StringIO()
     writer = csv.writer(buffer)
     writer.writerow(["SmartReceipt Monthly Expense Report"])
-    writer.writerow([f"Business: {business.name}", f"Tax ID: {business.tax_id}"])
+    writer.writerow([f"Business: {business.business_name}", f"Tax ID: {business.business_tax_id}"])
     writer.writerow([f"Period: {year}-{month:02d}"])
     writer.writerow([])
     writer.writerow(["Date", "Vendor", "Category", "Tax ID", "Amount", "Source"])
 
     total = 0.0
     for invoice in invoices:
-        category_name = invoice.category.name if invoice.category else "Uncategorized"
+        category_name = invoice.category or "Uncategorized"
         writer.writerow(
             [
                 invoice.date.strftime("%Y-%m-%d"),
@@ -44,8 +43,6 @@ def build_receipts_zip(invoices: list[Invoice]) -> bytes:
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
         for invoice in invoices:
-            path = Path(invoice.file_path)
-            if path.is_file():
-                arcname = f"{invoice.date.strftime('%Y-%m-%d')}_{invoice.id}_{path.name}"
-                zip_file.write(path, arcname=arcname)
+            arcname = f"{invoice.date.strftime('%Y-%m-%d')}_{invoice.id}_{invoice.file_name}"
+            zip_file.writestr(arcname, invoice.file_content)
     return buffer.getvalue()

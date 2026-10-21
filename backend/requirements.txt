@@ -1,10 +1,8 @@
 fastapi==0.141.1
 uvicorn[standard]==0.52.4
 sqlalchemy==2.0.52
-pyodbc==5.2.0
-# Postgres driver - used when DATABASE_URL is postgresql+psycopg://... (e.g. a
-# hosted Neon database), see README "Switching to Postgres (Neon)".
-psycopg[binary]==3.2.3
+# Turso (libSQL) driver - the app's only database (see app/database.py).
+libsql==0.1.11
 pydantic==2.13.5
 pydantic[email]==2.13.5
 pydantic-settings==2.15.0

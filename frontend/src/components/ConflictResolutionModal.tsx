@@ -95,7 +95,7 @@ export default function ConflictResolutionModal({
   const [submitting, setSubmitting] = useState<'keep_existing' | 'update_with_new' | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const existingIsPdf = existing.file_path.toLowerCase().endsWith('.pdf');
+  const existingIsPdf = existing.file_name.toLowerCase().endsWith('.pdf');
   const newIsPdf = newData.file_reference.toLowerCase().endsWith('.pdf');
 
   const existingImage = useReceiptPreview(`existing-${existing.id}`, () =>

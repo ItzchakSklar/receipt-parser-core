@@ -3,9 +3,10 @@ from collections import defaultdict
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
+from app.categories import category_id as to_category_id
 from app.database import get_db
 from app.dependencies import get_current_business_id
-from app.models import Category, Invoice
+from app.models import Invoice
 from app.schemas import CategoryBreakdown, DashboardStats, MonthlyTotal
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
@@ -26,26 +27,20 @@ def get_dashboard_stats(
     invoice_count = len(invoices)
     average_invoice = round(total_spent / invoice_count, 2) if invoice_count else 0.0
 
-    category_totals: dict[int | None, float] = defaultdict(float)
-    category_counts: dict[int | None, int] = defaultdict(int)
+    category_totals: dict[str | None, float] = defaultdict(float)
+    category_counts: dict[str | None, int] = defaultdict(int)
     for inv in invoices:
-        category_totals[inv.category_id] += inv.amount
-        category_counts[inv.category_id] += 1
-
-    categories = {
-        c.id: c.name for c in db.query(Category).filter(Category.business_id == business_id).all()
-    }
+        category_totals[inv.category] += inv.amount
+        category_counts[inv.category] += 1
 
     category_breakdown = [
         CategoryBreakdown(
-            category_id=category_id,
-            category_name=categories.get(category_id, "Uncategorized"),
+            category_id=to_category_id(category),
+            category_name=category or "Uncategorized",
             total=round(total, 2),
-            count=category_counts[category_id],
+            count=category_counts[category],
         )
-        for category_id, total in sorted(
-            category_totals.items(), key=lambda kv: kv[1], reverse=True
-        )
+        for category, total in sorted(category_totals.items(), key=lambda kv: kv[1], reverse=True)
     ]
 
     monthly_totals_map: dict[str, float] = defaultdict(float)

@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, LargeBinary, String
+from sqlalchemy.orm import Mapped, deferred, mapped_column, relationship
 
 from app.database import Base
 
@@ -10,62 +10,35 @@ def utcnow() -> datetime:
     return datetime.now(UTC)
 
 
-class Business(Base):
-    """A tenant. Every other entity is scoped to a business via business_id."""
+class User(Base):
+    """A registered account, and the tenant itself - each user owns exactly one
+    business, so its details live on this row and every invoice is scoped to it."""
 
-    __tablename__ = "businesses"
+    __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    name: Mapped[str] = mapped_column(String(255), nullable=False)
-    tax_id: Mapped[str] = mapped_column(String(50), nullable=False)
+    email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
+    hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
+    role: Mapped[str] = mapped_column(String(20), default="owner")
+    business_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    business_tax_id: Mapped[str] = mapped_column(String(50), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
-    users: Mapped[list["User"]] = relationship(
-        back_populates="business", cascade="all, delete-orphan"
-    )
-    categories: Mapped[list["Category"]] = relationship(
-        back_populates="business", cascade="all, delete-orphan"
-    )
     invoices: Mapped[list["Invoice"]] = relationship(
         back_populates="business", cascade="all, delete-orphan"
     )
 
-
-class User(Base):
-    __tablename__ = "users"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    business_id: Mapped[int] = mapped_column(
-        ForeignKey("businesses.id"), nullable=False, index=True
-    )
-    email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
-    hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
-    role: Mapped[str] = mapped_column(String(20), default="member")  # owner | admin | member
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-
-    business: Mapped["Business"] = relationship(back_populates="users")
-
-
-class Category(Base):
-    __tablename__ = "categories"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    business_id: Mapped[int] = mapped_column(
-        ForeignKey("businesses.id"), nullable=False, index=True
-    )
-    name: Mapped[str] = mapped_column(String(100), nullable=False)
-
-    business: Mapped["Business"] = relationship(back_populates="categories")
-    invoices: Mapped[list["Invoice"]] = relationship(back_populates="category")
+    @property
+    def business_id(self) -> int:
+        return self.id
 
 
 class Invoice(Base):
     __tablename__ = "invoices"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    business_id: Mapped[int] = mapped_column(
-        ForeignKey("businesses.id"), nullable=False, index=True
-    )
+    # The owning business - a users.id, since a user and their business are one row.
+    business_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
     vendor_name: Mapped[str] = mapped_column(String(255), nullable=False)
     amount: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -74,8 +47,14 @@ class Invoice(Base):
     # extraction - many receipts never print one, so this stays optional and is
     # used only to key duplicate-upload detection when it is present.
     invoice_number: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    category_id: Mapped[int | None] = mapped_column(ForeignKey("categories.id"), nullable=True)
-    file_path: Mapped[str] = mapped_column(String(500), nullable=False)
+    # One of app.categories.CATEGORIES, or None for "Uncategorized".
+    category: Mapped[str | None] = mapped_column(String(100), nullable=True)
+
+    # The receipt file itself is stored in the database, not on disk. Deferred so
+    # listing invoices never pulls every file over the network from Turso.
+    file_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    file_content_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    file_content: Mapped[bytes] = deferred(mapped_column(LargeBinary, nullable=False))
 
     # "ocr" = auto-extracted with acceptable confidence; "manual" = user-confirmed
     # after OCR could not extract data reliably. Never contains fabricated/mock data.
@@ -94,5 +73,4 @@ class Invoice(Base):
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
-    business: Mapped["Business"] = relationship(back_populates="invoices")
-    category: Mapped["Category | None"] = relationship(back_populates="invoices")
+    business: Mapped["User"] = relationship(back_populates="invoices")

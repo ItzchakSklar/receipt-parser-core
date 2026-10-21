@@ -109,7 +109,7 @@ export default function UploadZone({ onUploaded }: UploadZoneProps) {
         invoice_number: conflict.new_data.invoice_number,
       });
     } catch {
-      // Best-effort cleanup — a leftover file on disk is a cleanup miss, not a
+      // Best-effort cleanup — the held upload expires on its own anyway, and it's not a
       // data-integrity issue, since the existing invoice was never touched.
     } finally {
       setConflict(null);

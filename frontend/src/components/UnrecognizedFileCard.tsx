@@ -22,7 +22,7 @@ export default function UnrecognizedFileCard({
   onOpen,
   onContextMenu,
 }: UnrecognizedFileCardProps) {
-  const isPdf = invoice.file_path.toLowerCase().endsWith('.pdf');
+  const isPdf = invoice.file_name.toLowerCase().endsWith('.pdf');
   const filename = invoice.vendor_name;
 
   return (
