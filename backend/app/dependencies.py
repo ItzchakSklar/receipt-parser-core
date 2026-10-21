@@ -24,16 +24,16 @@ def get_current_user(
 ) -> CurrentUser:
     """Resolves the authenticated user (and therefore tenant/business_id) from the JWT."""
     if credentials is None:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Not authenticated")
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "נדרשת התחברות")
 
     payload = decode_access_token(credentials.credentials)
     if payload is None:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid or expired token")
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "פג תוקף ההתחברות, יש להתחבר מחדש")
 
     user_id = int(payload.get("sub"))
     user = db.get(User, user_id)
     if user is None:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "User not found")
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "המשתמש לא נמצא")
 
     return CurrentUser(id=user.id, business_id=user.business_id, role=user.role)
 

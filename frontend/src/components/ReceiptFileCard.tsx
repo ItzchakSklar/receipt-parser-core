@@ -48,19 +48,21 @@ export default function ReceiptFileCard({
             <p className="text-[11px] font-semibold text-slate-800">{formatILS(invoice.amount)}</p>
           </div>
         ) : (
-          <ReceiptThumbnail invoiceId={invoice.id} alt={`Receipt from ${invoice.vendor_name}`} />
+          <ReceiptThumbnail invoiceId={invoice.id} alt={`קבלה מ-${invoice.vendor_name}`} />
         )}
       </div>
 
       <div className="px-1 pt-2 pb-1">
         <p className="truncate text-sm font-medium text-slate-800">{invoice.vendor_name}</p>
         <div className="flex items-center justify-between">
-          <p className="text-xs text-slate-400">{new Date(invoice.date).toLocaleDateString()}</p>
+          <p className="text-xs text-slate-400">
+            {new Date(invoice.date).toLocaleDateString('he-IL')}
+          </p>
           <p className="text-xs font-semibold text-slate-700">{formatILS(invoice.amount)}</p>
         </div>
         {invoice.ocr_source === 'manual' && (
-          <span className="mt-1 inline-block rounded bg-amber-50 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-amber-600">
-            Manual
+          <span className="mt-1 inline-block rounded bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-600">
+            ידני
           </span>
         )}
       </div>

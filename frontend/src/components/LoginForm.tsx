@@ -13,6 +13,16 @@ export default function LoginForm() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
+  function switchMode(next: 'login' | 'register') {
+    if (next === mode) return;
+    setMode(next);
+    setEmail('');
+    setPassword('');
+    setBusinessName('');
+    setBusinessTaxId('');
+    setError(null);
+  }
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
@@ -24,7 +34,7 @@ export default function LoginForm() {
         await register(businessName, businessTaxId, email, password);
       }
     } catch (err: any) {
-      setError(err?.response?.data?.detail ?? 'Something went wrong. Please try again.');
+      setError(err?.response?.data?.detail ?? 'משהו השתבש. נסה שוב.');
     } finally {
       setLoading(false);
     }
@@ -45,19 +55,19 @@ export default function LoginForm() {
             className={`flex-1 py-2 text-sm font-medium rounded-md transition ${
               mode === 'login' ? 'bg-white shadow text-brand-700' : 'text-slate-500'
             }`}
-            onClick={() => setMode('login')}
+            onClick={() => switchMode('login')}
             type="button"
           >
-            Sign In
+            התחברות
           </button>
           <button
             className={`flex-1 py-2 text-sm font-medium rounded-md transition ${
               mode === 'register' ? 'bg-white shadow text-brand-700' : 'text-slate-500'
             }`}
-            onClick={() => setMode('register')}
+            onClick={() => switchMode('register')}
             type="button"
           >
-            New Business
+            עסק חדש
           </button>
         </div>
 
@@ -65,9 +75,7 @@ export default function LoginForm() {
           {mode === 'register' && (
             <>
               <div>
-                <label className="block text-sm font-medium text-slate-600 mb-1">
-                  Business Name
-                </label>
+                <label className="block text-sm font-medium text-slate-600 mb-1">שם העסק</label>
                 <input
                   required
                   className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-500"
@@ -77,7 +85,7 @@ export default function LoginForm() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-600 mb-1">
-                  Tax ID (ח"פ)
+                  ח"פ / עוסק מורשה
                 </label>
                 <input
                   required
@@ -90,7 +98,7 @@ export default function LoginForm() {
           )}
 
           <div>
-            <label className="block text-sm font-medium text-slate-600 mb-1">Email</label>
+            <label className="block text-sm font-medium text-slate-600 mb-1">אימייל</label>
             <input
               required
               type="email"
@@ -101,7 +109,7 @@ export default function LoginForm() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-600 mb-1">Password</label>
+            <label className="block text-sm font-medium text-slate-600 mb-1">סיסמה</label>
             <input
               required
               type="password"
@@ -119,13 +127,13 @@ export default function LoginForm() {
             disabled={loading}
             className="w-full bg-brand-600 hover:bg-brand-700 disabled:opacity-60 text-white font-medium py-2.5 rounded-lg transition"
           >
-            {loading ? 'Please wait...' : mode === 'login' ? 'Sign In' : 'Create Business'}
+            {loading ? 'רק רגע...' : mode === 'login' ? 'התחבר' : 'צור עסק'}
           </button>
         </form>
 
         {mode === 'login' && (
           <p className="text-xs text-slate-400 mt-4 text-center">
-            Demo: owner@acme.demo / password123 (run backend seed.py first)
+            חשבון הדגמה: owner@acme.demo / password123
           </p>
         )}
       </div>

@@ -5,10 +5,12 @@ import { useAuth } from '../context/AuthContext';
 import LiveClock from './LiveClock';
 
 const TABS = [
-  { id: 'dashboard', label: 'Dashboard' },
-  { id: 'upload', label: 'Upload' },
-  { id: 'invoices', label: 'Invoices' },
+  { id: 'dashboard', label: 'לוח בקרה' },
+  { id: 'upload', label: 'העלאה' },
+  { id: 'invoices', label: 'חשבוניות' },
 ] as const;
+
+const ROLE_LABELS: Record<string, string> = { owner: 'בעלים', admin: 'מנהל', member: 'משתמש' };
 
 export type TabId = (typeof TABS)[number]['id'];
 
@@ -62,9 +64,11 @@ export default function Header({ activeTab, onTabChange, onRefresh }: HeaderProp
 
         <div className="flex items-center gap-3">
           <LiveClock />
-          <div className="hidden md:block text-right leading-tight">
+          <div className="hidden md:block text-left leading-tight">
             <div className="text-sm font-medium text-slate-700">{user?.email}</div>
-            <div className="text-xs text-slate-400 capitalize">{user?.role}</div>
+            <div className="text-xs text-slate-400">
+              {ROLE_LABELS[user?.role ?? ''] ?? user?.role}
+            </div>
           </div>
           <button
             onClick={handleRefresh}
@@ -77,7 +81,7 @@ export default function Header({ activeTab, onTabChange, onRefresh }: HeaderProp
           <button
             onClick={logout}
             className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition"
-            title="Log out"
+            title="התנתק"
           >
             <LogOut size={18} />
           </button>

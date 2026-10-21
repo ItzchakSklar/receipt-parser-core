@@ -53,7 +53,7 @@ export default function UnrecognizedFileCard({
       <div className="px-1 pt-2 pb-1">
         <p className="truncate text-sm font-medium text-slate-800">{filename}</p>
         <p className="text-xs text-slate-400">
-          {new Date(invoice.created_at).toLocaleDateString()}
+          {new Date(invoice.created_at).toLocaleDateString('he-IL')}
         </p>
         <span
           dir="rtl"

@@ -3,6 +3,7 @@ from collections import defaultdict
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
+from app.categories import UNCATEGORIZED_LABEL, category_label
 from app.categories import category_id as to_category_id
 from app.database import get_db
 from app.dependencies import get_current_business_id
@@ -36,7 +37,7 @@ def get_dashboard_stats(
     category_breakdown = [
         CategoryBreakdown(
             category_id=to_category_id(category),
-            category_name=category or "Uncategorized",
+            category_name=category_label(category) or UNCATEGORIZED_LABEL,
             total=round(total, 2),
             count=category_counts[category],
         )

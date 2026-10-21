@@ -204,8 +204,8 @@ export default function ConflictResolutionModal({
             />
             <DataRow
               label="תאריך"
-              existingValue={new Date(existing.date).toLocaleDateString()}
-              newValue={new Date(newData.date).toLocaleDateString()}
+              existingValue={new Date(existing.date).toLocaleDateString('he-IL')}
+              newValue={new Date(newData.date).toLocaleDateString('he-IL')}
               differs={
                 new Date(existing.date).toDateString() !== new Date(newData.date).toDateString()
               }

@@ -112,6 +112,10 @@ pip install -r requirements.txt
 copy .env.example .env      # Windows: copy, macOS/Linux: cp .env.example .env
 ```
 
+This copies `backend/.env.example`, not the repo-root `.env.example` (that one is only
+for `docker-compose.yml`). Skip the copy if `backend/.env` already exists, or it will
+be overwritten.
+
 Put your Turso database URL in `backend/.env`'s `DATABASE_URL` (see [Database
 (Turso)](#database-turso)). This is also what any deployment (Docker Compose, Render,
 ...) points at, so local dev and production share one database.

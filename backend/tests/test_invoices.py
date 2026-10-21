@@ -69,7 +69,7 @@ def test_sort_unrecognized_applies_category(client):
     body = response.json()
     assert body["is_unrecognized"] is False
     assert body["category_id"] == 2
-    assert body["category_name"] == "Travel"
+    assert body["category_name"] == "נסיעות"
 
     listed = client.get("/api/invoices", headers=headers).json()
     assert [inv["id"] for inv in listed] == [invoice["id"]]
