@@ -1,13 +1,15 @@
 import { X } from 'lucide-react';
-import { useEffect, useState, type FormEvent, type MouseEvent } from 'react';
+import { useEffect, useState, type MouseEvent } from 'react';
 
-import { cachedGet, getReceiptFile } from '../api/cache';
-import { api } from '../api/client';
-import type { Category, Invoice } from '../types';
+import { getReceiptFile } from '../api/cache';
+import type { Invoice } from '../types';
+import CompleteReceiptForm from './CompleteReceiptForm';
 
 interface UnrecognizedReviewModalProps {
   invoice: Invoice;
   onSorted: (invoice: Invoice) => void;
+  /** Removed as a duplicate of an invoice the user chose to keep. */
+  onDeleted: () => void;
   onClose: () => void;
 }
 
@@ -17,20 +19,12 @@ interface UnrecognizedReviewModalProps {
 export default function UnrecognizedReviewModal({
   invoice,
   onSorted,
+  onDeleted,
   onClose,
 }: UnrecognizedReviewModalProps) {
   const [objectUrl, setObjectUrl] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState(false);
   const isPdf = invoice.file_name.toLowerCase().endsWith('.pdf');
-
-  const [vendorName, setVendorName] = useState('');
-  const [amount, setAmount] = useState('');
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
-  const [taxId, setTaxId] = useState('');
-  const [categoryId, setCategoryId] = useState<number | null>(null);
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let url: string | null = null;
@@ -52,34 +46,8 @@ export default function UnrecognizedReviewModal({
     };
   }, [invoice.id]);
 
-  useEffect(() => {
-    cachedGet<Category[]>('/categories')
-      .then(setCategories)
-      .catch(() => {});
-  }, []);
-
   function stopPropagation(e: MouseEvent) {
     e.stopPropagation();
-  }
-
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault();
-    setSubmitting(true);
-    setError(null);
-    try {
-      const { data } = await api.post<Invoice>(`/invoices/unrecognized/${invoice.id}/sort`, {
-        vendor_name: vendorName,
-        amount: parseFloat(amount),
-        date: new Date(date).toISOString(),
-        tax_id: taxId.trim() || null,
-        category_id: categoryId,
-      });
-      onSorted(data);
-    } catch (err: any) {
-      setError(err?.response?.data?.detail ?? 'לא ניתן היה למיין את הקובץ. נסה שוב.');
-    } finally {
-      setSubmitting(false);
-    }
   }
 
   return (
@@ -117,89 +85,20 @@ export default function UnrecognizedReviewModal({
           )}
         </div>
 
-        <form
-          onSubmit={handleSubmit}
-          className="w-full shrink-0 space-y-3 overflow-y-auto p-6 md:w-96"
-        >
+        <div className="w-full shrink-0 space-y-3 overflow-y-auto p-6 md:w-96">
           <div>
             <h3 className="text-lg font-semibold text-slate-800">מיין לתקייה / עדכן פרטים</h3>
             <p className="mt-1 text-xs text-slate-400">
               אשר את הפרטים האמיתיים כדי שהקובץ יעבור לתקיית החודש/שנה המתאימה.
             </p>
           </div>
-
-          <div>
-            <label className="block text-sm font-medium text-slate-600 mb-1">שם ספק</label>
-            <input
-              required
-              value={vendorName}
-              onChange={(e) => setVendorName(e.target.value)}
-              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-sm font-medium text-slate-600 mb-1">סכום כולל</label>
-              <input
-                required
-                type="number"
-                step="0.01"
-                min="0.01"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-600 mb-1">תאריך</label>
-              <input
-                required
-                type="date"
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
-                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-slate-600 mb-1">
-              ח.פ / עוסק (לא חובה)
-            </label>
-            <input
-              value={taxId}
-              onChange={(e) => setTaxId(e.target.value)}
-              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-slate-600 mb-1">קטגוריה</label>
-            <select
-              value={categoryId ?? ''}
-              onChange={(e) => setCategoryId(e.target.value ? Number(e.target.value) : null)}
-              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
-            >
-              <option value="">ללא קטגוריה</option>
-              {categories.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {error && <p className="text-sm text-red-600">{error}</p>}
-
-          <button
-            type="submit"
-            disabled={submitting}
-            className="w-full bg-brand-600 hover:bg-brand-700 disabled:opacity-60 text-white font-medium py-2.5 rounded-lg transition"
-          >
-            {submitting ? 'שומר...' : 'מיין לתקייה / עדכן פרטים'}
-          </button>
-        </form>
+          <CompleteReceiptForm
+            invoice={invoice}
+            submitLabel="מיין לתקייה / עדכן פרטים"
+            onSorted={onSorted}
+            onDeleted={onDeleted}
+          />
+        </div>
       </div>
     </div>
   );

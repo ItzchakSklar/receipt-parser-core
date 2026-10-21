@@ -1,8 +1,10 @@
 import logging
+import re
 import time
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
+from difflib import SequenceMatcher
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
@@ -142,57 +144,136 @@ def _save_as_unrecognized(
     return invoice
 
 
-def _find_potential_duplicate(
-    db: Session, business_id: int, vendor_name: str, invoice_number: str
-) -> Invoice | None:
-    """Looks up an existing invoice with the same vendor and invoice number for this
-    business. Matching is case/whitespace-insensitive since OCR reads of the same
-    printed text can vary in casing across two scans of the same receipt."""
+@dataclass
+class _ReceiptFields:
+    """The fields duplicate detection compares - filled from an OCR read on upload,
+    or from the values a user typed in when completing an unrecognized receipt."""
+
+    vendor_name: str
+    amount: float
+    date: date
+    tax_id: str | None
+    invoice_number: str | None
+
+
+# Stripped before comparing vendor names - legal-entity suffixes and punctuation that
+# one scan may print or OCR may read and another may not.
+_VENDOR_NOISE = re.compile(r'בע"?מ|בע״מ|\bltd\b|\binc\b|\bco\b|["\'״׳.,\-()]', re.IGNORECASE)
+VENDOR_SIMILARITY_THRESHOLD = 0.8
+
+
+def _vendor_key(name: str) -> str:
+    return " ".join(_VENDOR_NOISE.sub(" ", name.lower()).split())
+
+
+def _similar_vendor(a: str, b: str) -> bool:
+    """Two reads of the same printed vendor name rarely come out identical (a stray
+    quote, "בע"מ" read on one scan only, one misread letter), so exact equality would
+    let the same receipt in twice under slightly different names."""
+    key_a, key_b = _vendor_key(a), _vendor_key(b)
+    if not key_a or not key_b:
+        return False
+    if key_a == key_b or (min(len(key_a), len(key_b)) >= 3 and (key_a in key_b or key_b in key_a)):
+        return True
+    return SequenceMatcher(None, key_a, key_b).ratio() >= VENDOR_SIMILARITY_THRESHOLD
+
+
+def _same_receipt_data(existing: Invoice, fields: _ReceiptFields) -> bool:
+    same_amount = abs(existing.amount - fields.amount) < AMOUNT_TOLERANCE
+    same_date = existing.date.date() == fields.date
+    same_tax_id = (
+        not existing.tax_id or not fields.tax_id or existing.tax_id.strip() == fields.tax_id.strip()
+    )
+    return same_amount and same_date and same_tax_id
+
+
+def _find_identical_file(db: Session, business_id: int, content: bytes) -> Invoice | None:
     return (
         db.query(Invoice)
         .filter(
             Invoice.business_id == business_id,
-            Invoice.invoice_number.isnot(None),
-            func.lower(func.trim(Invoice.invoice_number)) == invoice_number.strip().lower(),
-            func.lower(func.trim(Invoice.vendor_name)) == vendor_name.strip().lower(),
+            func.length(Invoice.file_content) == len(content),
+            Invoice.file_content == content,
         )
         .first()
     )
 
 
-def _find_exact_match_by_tax_id(
-    db: Session, business_id: int, vendor_name: str, tax_id: str, amount: float, date_value
-) -> Invoice | None:
-    """Fallback duplicate signal for when no invoice number was extracted (or it
-    didn't match any existing record): same business, vendor and tax id, with an
-    identical amount and date, is treated as the same physical receipt scanned
-    twice. Only ever returns an exact match by construction - amount/date equality
-    is checked below - so callers never need to branch on conflict here. Amount and
-    date are compared in Python rather than in SQL since amount needs a tolerance
-    and Invoice.date is a datetime while date_value is a bare date."""
-    candidates = (
-        db.query(Invoice)
-        .filter(
-            Invoice.business_id == business_id,
-            Invoice.tax_id.isnot(None),
-            func.lower(func.trim(Invoice.tax_id)) == tax_id.strip().lower(),
-            func.lower(func.trim(Invoice.vendor_name)) == vendor_name.strip().lower(),
-        )
-        .all()
+def _find_duplicate(
+    db: Session, business_id: int, fields: _ReceiptFields, exclude_id: int | None = None
+) -> tuple[Invoice | None, bool]:
+    """Returns (matching invoice, is_conflict) - a match with identical amount/date/tax
+    id is an exact duplicate, anything else a conflict the user must resolve. Same
+    invoice number + similar vendor is the primary key. When either side has no
+    invoice number (often the case: OCR may miss it, and rows completed by hand
+    before the form had that field never got one), a similar vendor on the same date
+    is enough to ask - the user can still keep both if they really are two purchases.
+    Two different invoice numbers are never the same receipt. Unrecognized rows are
+    skipped - their vendor/amount/date are placeholders, not data to match against."""
+    base = db.query(Invoice).filter(
+        Invoice.business_id == business_id, Invoice.is_unrecognized.is_(False)
     )
-    for candidate in candidates:
-        if (
-            abs(candidate.amount - amount) < AMOUNT_TOLERANCE
-            and candidate.date.date() == date_value
-        ):
-            return candidate
-    return None
+    if exclude_id is not None:
+        base = base.filter(Invoice.id != exclude_id)
+
+    new_number = (fields.invoice_number or "").strip().lower()
+    if new_number:
+        candidates = base.filter(
+            func.lower(func.trim(Invoice.invoice_number)) == new_number,
+        ).all()
+        for candidate in candidates:
+            if _similar_vendor(candidate.vendor_name, fields.vendor_name):
+                return candidate, not _same_receipt_data(candidate, fields)
+
+    # Invoice.date is a datetime; compared as a date in Python, like _same_receipt_data.
+    same_vendor_and_date = [
+        candidate
+        for candidate in base.all()
+        if candidate.date.date() == fields.date
+        and _similar_vendor(candidate.vendor_name, fields.vendor_name)
+    ]
+    for candidate in same_vendor_and_date:
+        if new_number and (candidate.invoice_number or "").strip():
+            continue  # both numbered, and the numbers differ - different receipts
+        return candidate, not _same_receipt_data(candidate, fields)
+
+    return None, False
 
 
-def _is_exact_match(existing: Invoice, ocr_result: OCRResult) -> bool:
-    same_amount = abs(existing.amount - ocr_result.amount) < AMOUNT_TOLERANCE
-    same_date = existing.date.date() == ocr_result.date
-    return same_amount and same_date
+def _duplicate_exists_error(existing: Invoice) -> HTTPException:
+    return HTTPException(
+        status.HTTP_409_CONFLICT,
+        detail={
+            "error": "DUPLICATE_EXISTS",
+            "message": "הקבלה הזו כבר הועלתה למערכת.",
+            "existing_invoice": _to_invoice_out(existing).model_dump(mode="json"),
+        },
+    )
+
+
+def _duplicate_conflict_error(
+    existing: Invoice, fields: _ReceiptFields, file_name: str, **new_source: str | int
+) -> HTTPException:
+    """new_source is either file_reference (an upload held in memory) or new_invoice_id
+    (an unrecognized row the user just completed) - whichever /resolve-conflict needs
+    to find the new side again."""
+    return HTTPException(
+        status.HTTP_409_CONFLICT,
+        detail={
+            "error": "DUPLICATE_CONFLICT",
+            "message": "נמצאה חשבונית קיימת שנראית כמו אותה קבלה, אך עם נתונים שונים.",
+            "existing_invoice": _to_invoice_out(existing).model_dump(mode="json"),
+            "new_data": {
+                "vendor_name": fields.vendor_name,
+                "amount": fields.amount,
+                "date": fields.date.isoformat(),
+                "tax_id": fields.tax_id,
+                "invoice_number": fields.invoice_number,
+                "file_name": file_name,
+                **new_source,
+            },
+        },
+    )
 
 
 def _check_for_duplicate(
@@ -203,64 +284,20 @@ def _check_for_duplicate(
     content_type: str,
     content: bytes,
 ) -> None:
-    """Raises 409 DUPLICATE_EXISTS or DUPLICATE_CONFLICT when this upload matches an
-    existing invoice. Vendor + invoice number is the primary key; when OCR couldn't
-    read an invoice number off this receipt (or it doesn't match anything), this
-    falls back to vendor + tax id with an identical amount and date, so a duplicate
-    upload of a receipt without a machine-readable invoice number still gets caught
-    instead of silently skipping the check altogether."""
-    duplicate: Invoice | None = None
-    matched_by_invoice_number = False
-
-    if ocr_result.invoice_number:
-        duplicate = _find_potential_duplicate(
-            db, business_id, ocr_result.vendor_name, ocr_result.invoice_number
-        )
-        matched_by_invoice_number = duplicate is not None
-
-    if duplicate is None and ocr_result.tax_id:
-        duplicate = _find_exact_match_by_tax_id(
-            db,
-            business_id,
-            ocr_result.vendor_name,
-            ocr_result.tax_id,
-            ocr_result.amount,
-            ocr_result.date,
-        )
-
+    fields = _ReceiptFields(
+        ocr_result.vendor_name,
+        ocr_result.amount,
+        ocr_result.date,
+        ocr_result.tax_id,
+        ocr_result.invoice_number,
+    )
+    duplicate, is_conflict = _find_duplicate(db, business_id, fields)
     if duplicate is None:
         return
-
-    if matched_by_invoice_number and not _is_exact_match(duplicate, ocr_result):
+    if is_conflict:
         file_reference = _hold_pending_upload(business_id, file_name, content_type, content)
-        raise HTTPException(
-            status.HTTP_409_CONFLICT,
-            detail={
-                "error": "DUPLICATE_CONFLICT",
-                "message": "כבר קיימת חשבונית מאותו ספק ועם אותו מספר חשבונית, אך עם נתונים שונים.",
-                "existing_invoice": _to_invoice_out(duplicate).model_dump(mode="json"),
-                "new_data": {
-                    "vendor_name": ocr_result.vendor_name,
-                    "amount": ocr_result.amount,
-                    "date": ocr_result.date.isoformat(),
-                    "tax_id": ocr_result.tax_id,
-                    "invoice_number": ocr_result.invoice_number,
-                    "file_reference": file_reference,
-                },
-            },
-        )
-
-    # Either matched by invoice number with identical data, or matched via the
-    # tax-id fallback (which by construction already requires identical amount/date).
-    # Either way, nothing new to keep - reject outright.
-    raise HTTPException(
-        status.HTTP_409_CONFLICT,
-        detail={
-            "error": "DUPLICATE_EXISTS",
-            "message": "הקבלה הזו כבר הועלתה למערכת.",
-            "existing_invoice": _to_invoice_out(duplicate).model_dump(mode="json"),
-        },
-    )
+        raise _duplicate_conflict_error(duplicate, fields, file_name, file_reference=file_reference)
+    raise _duplicate_exists_error(duplicate)
 
 
 @router.post("/upload", response_model=InvoiceOut, status_code=status.HTTP_201_CREATED)
@@ -289,6 +326,12 @@ async def upload_invoice(
     # "לא מזוהים" folder for manual review rather than being discarded or rejected.
     file_name = file.filename or f"receipt-{uuid.uuid4().hex[:8]}"
 
+    # The exact same file uploaded again - no need to spend tens of seconds on OCR to
+    # find that out, and it catches re-uploads of unrecognized files too.
+    identical = _find_identical_file(db, business_id, file_bytes)
+    if identical is not None:
+        raise _duplicate_exists_error(identical)
+
     try:
         ocr_result = parse_invoice(file_name, file_bytes, file.content_type)
     except OCRLowConfidenceError as exc:
@@ -314,7 +357,10 @@ async def upload_invoice(
             info,
             uploaded_at_external_time,
         )
-        return _to_invoice_out(invoice)
+        out = _to_invoice_out(invoice)
+        out.ocr_reason = info.reason
+        out.ocr_missing_fields = info.missing_fields
+        return out
 
     _check_for_duplicate(db, business_id, ocr_result, file_name, file.content_type, file_bytes)
 
@@ -359,10 +405,16 @@ async def resolve_conflict(
     business_id: int = Depends(get_current_business_id),
     db: Session = Depends(get_db),
 ):
-    """Finalizes the user's choice after /upload returned 409 DUPLICATE_CONFLICT:
-    either discard the new upload and keep the existing invoice untouched, or
-    overwrite the existing invoice with the newly uploaded file and its data."""
-    pending = _get_pending_upload(business_id, payload.file_reference)
+    """Finalizes the user's choice after a 409 DUPLICATE_CONFLICT: discard the new side
+    and keep the existing invoice untouched, overwrite the existing invoice with the
+    new file and its data, or keep both as separate invoices. The new side is either an upload held in
+    memory by /upload (file_reference) or an unrecognized row whose completion via
+    /unrecognized/{id}/sort collided (new_invoice_id) - that row is removed either
+    way, since its data/file ends up kept or deliberately discarded."""
+    if (payload.file_reference is None) == (payload.new_invoice_id is None):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "יש לציין file_reference או new_invoice_id."
+        )
 
     existing = (
         db.query(Invoice)
@@ -372,22 +424,62 @@ async def resolve_conflict(
     if existing is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "החשבונית הקיימת לא נמצאה.")
 
-    del _pending_uploads[payload.file_reference]
+    if payload.file_reference is not None:
+        pending = _get_pending_upload(business_id, payload.file_reference)
+        del _pending_uploads[payload.file_reference]
+        new_file = (pending.file_name, pending.content_type, pending.content)
+        ocr_source = "ocr"
+    else:
+        new_row = (
+            db.query(Invoice)
+            .filter(
+                Invoice.id == payload.new_invoice_id,
+                Invoice.business_id == business_id,
+                Invoice.is_unrecognized.is_(True),
+            )
+            .options(undefer(Invoice.file_content))
+            .first()
+        )
+        if new_row is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "הקובץ הלא מזוהה לא נמצא")
+        new_file = (new_row.file_name, new_row.file_content_type, new_row.file_content)
+        ocr_source = "manual"
+        db.delete(new_row)
+
     if payload.action == "keep_existing":
+        db.commit()
         return _to_invoice_out(existing)
 
-    # action == "update_with_new": overwrite the existing record, file included.
     external_time = await fetch_external_time()
 
+    if payload.action == "keep_both":
+        # Not the same receipt after all (e.g. two purchases from one vendor on one day).
+        invoice = Invoice(
+            business_id=business_id,
+            vendor_name=payload.vendor_name,
+            amount=payload.amount,
+            date=payload.date,
+            tax_id=payload.tax_id,
+            invoice_number=payload.invoice_number,
+            file_name=new_file[0],
+            file_content_type=new_file[1],
+            file_content=new_file[2],
+            ocr_source=ocr_source,
+            uploaded_at_external_time=parse_external_datetime(external_time),
+        )
+        db.add(invoice)
+        db.commit()
+        db.refresh(invoice)
+        return _to_invoice_out(invoice)
+
+    # action == "update_with_new": overwrite the existing record, file included.
     existing.vendor_name = payload.vendor_name
     existing.amount = payload.amount
     existing.date = payload.date
     existing.tax_id = payload.tax_id
     existing.invoice_number = payload.invoice_number
-    existing.file_name = pending.file_name
-    existing.file_content_type = pending.content_type
-    existing.file_content = pending.content
-    existing.ocr_source = "ocr"
+    existing.file_name, existing.file_content_type, existing.file_content = new_file
+    existing.ocr_source = ocr_source
     existing.uploaded_at_external_time = parse_external_datetime(external_time)
     db.commit()
     db.refresh(existing)
@@ -450,6 +542,22 @@ def sort_unrecognized_invoice(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "הקובץ הלא מזוהה לא נמצא")
 
     category = _resolve_category(payload.category_id)
+
+    # Hand-completed data gets the same duplicate check as an OCR read on upload.
+    fields = _ReceiptFields(
+        payload.vendor_name,
+        payload.amount,
+        payload.date.date(),
+        payload.tax_id,
+        payload.invoice_number,
+    )
+    duplicate, is_conflict = _find_duplicate(db, business_id, fields, exclude_id=invoice.id)
+    if duplicate is not None:
+        if is_conflict:
+            raise _duplicate_conflict_error(
+                duplicate, fields, invoice.file_name, new_invoice_id=invoice.id
+            )
+        raise _duplicate_exists_error(duplicate)
 
     invoice.vendor_name = payload.vendor_name
     invoice.amount = payload.amount

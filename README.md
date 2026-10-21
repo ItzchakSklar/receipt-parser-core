@@ -99,6 +99,8 @@ it (see `app/dependencies.py`), so tenants can never see each other's data.
 
 ## Running the Backend
 
+### First-time setup (once per checkout)
+
 ```bash
 cd backend
 python -m venv .venv
@@ -113,21 +115,29 @@ copy .env.example .env      # Windows: copy, macOS/Linux: cp .env.example .env
 ```
 
 This copies `backend/.env.example`, not the repo-root `.env.example` (that one is only
-for `docker-compose.yml`). Skip the copy if `backend/.env` already exists, or it will
-be overwritten.
+for `docker-compose.yml`). Never run the copy again once `backend/.env` exists - it
+overwrites your real `DATABASE_URL` with the `<db>-<org>` placeholder.
 
 Put your Turso database URL in `backend/.env`'s `DATABASE_URL` (see [Database
 (Turso)](#database-turso)). This is also what any deployment (Docker Compose, Render,
 ...) points at, so local dev and production share one database.
 
-Then:
+Optionally, seed two demo businesses with sample invoices (once - the data lives in
+Turso, so there's no need to re-seed):
 
 ```bash
-# Optional: seed two demo businesses with sample invoices
 python seed.py
+```
 
+### Every time
+
+```bash
+cd backend
+.venv\Scripts\activate      # macOS/Linux: source .venv/bin/activate
 uvicorn app.main:app --reload --port 8000
 ```
+
+Re-run `pip install -r requirements.txt` only after `requirements.txt` changes.
 
 The API is now available at `http://localhost:8000` (interactive docs at
 `http://localhost:8000/docs`).

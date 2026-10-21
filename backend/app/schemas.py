@@ -68,6 +68,11 @@ class InvoiceOut(BaseModel):
     is_unrecognized: bool
     uploaded_at_external_time: datetime
     created_at: datetime
+    # Only set on the POST /upload response for an unrecognized file, so the upload
+    # screen can say why (corrupt / blurry / fields not found) and which fields the
+    # placeholders stand in for. Not persisted - there's no column for them.
+    ocr_reason: str | None = None
+    ocr_missing_fields: list[str] = []
 
 
 class InvoiceUpdate(BaseModel):
@@ -96,9 +101,12 @@ class DuplicateResolutionRequest(BaseModel):
     """Submitted after /upload returns 409 DUPLICATE_CONFLICT, to let the user pick
     a side in the comparison modal instead of silently overwriting either record."""
 
-    action: Literal["keep_existing", "update_with_new"]
+    action: Literal["keep_existing", "update_with_new", "keep_both"]
     existing_invoice_id: int
-    file_reference: str
+    # Exactly one of these identifies the new side: an upload held in memory by
+    # /upload, or an unrecognized row whose manual completion collided.
+    file_reference: str | None = None
+    new_invoice_id: int | None = None
     vendor_name: str = Field(min_length=1)
     amount: float = Field(gt=0)
     date: datetime
