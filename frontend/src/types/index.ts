@@ -77,14 +77,6 @@ export interface DuplicateConflictDetail {
   new_data: ExtractedReceiptData;
 }
 
-export interface MonthlyExportResponse {
-  status: string;
-  mode: 'smtp' | 'mock';
-  invoice_count: number;
-  total: number;
-  recipient: string;
-}
-
 export interface CategoryBreakdown {
   category_id: number | null;
   category_name: string;

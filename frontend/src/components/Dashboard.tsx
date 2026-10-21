@@ -1,4 +1,4 @@
-import { DollarSign, Hash, Mail, TrendingUp } from 'lucide-react';
+import { DollarSign, Hash, Share2, TrendingUp } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import {
   Bar,
@@ -14,7 +14,7 @@ import {
   YAxis,
 } from 'recharts';
 
-import { api } from '../api/client';
+import { cachedGet } from '../api/cache';
 import type { DashboardStats } from '../types';
 import SendToAccountantModal from './SendToAccountantModal';
 
@@ -45,9 +45,8 @@ export default function Dashboard({ refreshKey }: { refreshKey: number }) {
 
   useEffect(() => {
     setLoading(true);
-    api
-      .get<DashboardStats>('/dashboard/stats')
-      .then(({ data }) => setStats(data))
+    cachedGet<DashboardStats>('/dashboard/stats')
+      .then(setStats)
       .finally(() => setLoading(false));
   }, [refreshKey]);
 
@@ -58,7 +57,7 @@ export default function Dashboard({ refreshKey }: { refreshKey: number }) {
         onClick={() => setShowExportModal(true)}
         className="inline-flex items-center gap-2 bg-white border border-slate-200 hover:border-brand-300 hover:text-brand-700 text-slate-600 text-sm font-medium px-4 py-2 rounded-lg shadow-sm transition"
       >
-        <Mail size={16} />
+        <Share2 size={16} />
         Send to Accountant
         <span className="text-slate-400" dir="rtl">
           שלח לרואה חשבון

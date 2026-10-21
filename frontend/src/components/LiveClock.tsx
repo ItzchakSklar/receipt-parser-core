@@ -4,7 +4,8 @@ import { useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
 import type { ExternalTime } from '../types';
 
-const RESYNC_INTERVAL_MS = 60_000;
+// The display ticks locally between syncs, so resyncing often only costs backend calls.
+const RESYNC_INTERVAL_MS = 60 * 60_000;
 const TICK_INTERVAL_MS = 1_000;
 
 export default function LiveClock() {

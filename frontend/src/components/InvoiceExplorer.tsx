@@ -1,6 +1,7 @@
-import { ChevronRight, Download, FolderInput, Mail, Pencil, Trash2 } from 'lucide-react';
+import { ChevronRight, Download, FolderInput, Pencil, Share2, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useState, type MouseEvent } from 'react';
 
+import { cachedGet, dropReceiptFile, getReceiptFile } from '../api/cache';
 import { api } from '../api/client';
 import type { Invoice } from '../types';
 import ConfirmDialog from './ConfirmDialog';
@@ -66,16 +67,14 @@ export default function InvoiceExplorer({ refreshKey }: { refreshKey: number }) 
 
   function fetchInvoices() {
     setLoading(true);
-    return api
-      .get<Invoice[]>('/invoices')
-      .then(({ data }) => setInvoices(data))
+    return cachedGet<Invoice[]>('/invoices')
+      .then(setInvoices)
       .finally(() => setLoading(false));
   }
 
   function fetchUnrecognized() {
-    return api
-      .get<Invoice[]>('/invoices/unrecognized')
-      .then(({ data }) => setUnrecognized(data))
+    return cachedGet<Invoice[]>('/invoices/unrecognized')
+      .then(setUnrecognized)
       .catch(() => {});
   }
 
@@ -152,6 +151,7 @@ export default function InvoiceExplorer({ refreshKey }: { refreshKey: number }) 
     if (!deletingInvoice) return;
     try {
       await api.delete(`/invoices/${deletingInvoice.id}`);
+      await dropReceiptFile(deletingInvoice.id);
       setInvoices((prev) => prev.filter((inv) => inv.id !== deletingInvoice.id));
       setUnrecognized((prev) => prev.filter((inv) => inv.id !== deletingInvoice.id));
       setSelectedInvoiceId((prev) => (prev === deletingInvoice.id ? null : prev));
@@ -165,7 +165,7 @@ export default function InvoiceExplorer({ refreshKey }: { refreshKey: number }) 
 
   async function handleDownload(invoice: Invoice) {
     try {
-      const { data } = await api.get(`/invoices/${invoice.id}/file`, { responseType: 'blob' });
+      const data = await getReceiptFile(invoice.id);
       const extension = invoice.file_name.split('.').pop() || 'bin';
       const safeVendor = invoice.vendor_name.replace(/[^\p{L}\p{N}_-]+/gu, '_') || 'receipt';
       const dateStr = new Date(invoice.date).toISOString().slice(0, 10);
@@ -295,7 +295,7 @@ export default function InvoiceExplorer({ refreshKey }: { refreshKey: number }) 
               onClick={() => setShowExportModal(true)}
               className="inline-flex items-center gap-2 bg-white border border-slate-200 hover:border-brand-300 hover:text-brand-700 text-slate-600 text-sm font-medium px-4 py-2 rounded-lg shadow-sm transition"
             >
-              <Mail size={16} />
+              <Share2 size={16} />
               Send Month to Accountant
               <span className="text-slate-400" dir="rtl">
                 שלח חודש זה לרואה חשבון

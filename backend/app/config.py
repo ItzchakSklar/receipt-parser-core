@@ -1,5 +1,3 @@
-from pathlib import Path
-
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -29,32 +27,12 @@ class Settings(BaseSettings):
     # re-list the local-dev origins alongside it.
     frontend_url: str = ""
 
-    # SMTP is optional. When smtp_host is empty, monthly reports are written to
-    # sent_email_dir instead of actually being emailed (dev-friendly mock mode).
-    smtp_host: str = ""
-    smtp_port: int = 587
-    smtp_username: str = ""
-    smtp_password: str = ""
-    smtp_from_email: str = "reports@smartreceipt.local"
-    smtp_use_tls: bool = True
-    sent_email_dir: str = "./sent_emails"
-
     @property
     def cors_origin_list(self) -> list[str]:
         origins = [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
         if self.frontend_url and self.frontend_url not in origins:
             origins.append(self.frontend_url)
         return origins
-
-    @property
-    def sent_email_path(self) -> Path:
-        path = Path(self.sent_email_dir)
-        path.mkdir(parents=True, exist_ok=True)
-        return path
-
-    @property
-    def smtp_configured(self) -> bool:
-        return bool(self.smtp_host)
 
 
 settings = Settings()

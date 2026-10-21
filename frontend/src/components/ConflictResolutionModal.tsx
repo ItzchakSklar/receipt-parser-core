@@ -1,6 +1,7 @@
 import { AlertTriangle, X } from 'lucide-react';
 import { useEffect, useState, type MouseEvent } from 'react';
 
+import { dropReceiptFile, getReceiptFile } from '../api/cache';
 import { api } from '../api/client';
 import type { DuplicateConflictDetail, Invoice } from '../types';
 import { formatILS } from '../utils/currency';
@@ -99,7 +100,7 @@ export default function ConflictResolutionModal({
   const newIsPdf = newData.file_reference.toLowerCase().endsWith('.pdf');
 
   const existingImage = useReceiptPreview(`existing-${existing.id}`, () =>
-    api.get(`/invoices/${existing.id}/file`, { responseType: 'blob' }),
+    getReceiptFile(existing.id).then((data) => ({ data })),
   );
   const newImage = useReceiptPreview(`new-${newData.file_reference}`, () =>
     api.get('/invoices/file-preview', {
@@ -126,6 +127,7 @@ export default function ConflictResolutionModal({
         tax_id: newData.tax_id,
         invoice_number: newData.invoice_number,
       });
+      if (action === 'update_with_new') await dropReceiptFile(existing.id);
       onResolved({ action, invoice: data });
     } catch {
       setError('הפעולה נכשלה. נסה שוב.');

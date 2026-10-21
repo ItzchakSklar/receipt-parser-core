@@ -3,9 +3,15 @@
 A multi-tenant SaaS application for small businesses to upload, OCR-parse, and analyze
 their expense receipts.
 
+**Live app (production):** <https://receipt-parser-core.vercel.app/>
+
+The production frontend is deployed on Vercel and talks to the backend on Render,
+both backed by the shared Turso database (see
+[Deploying to Render + Vercel](#deploying-to-render--vercel-free-tier)).
+
 ## Project Structure
 
-```
+```text
 receipt-parser-core/
 |-- backend/                    FastAPI + SQLAlchemy API
 |   |-- app/
@@ -20,38 +26,53 @@ receipt-parser-core/
 |   |   |-- dependencies.py         get_current_user / get_current_business_id
 |   |   |-- routers/
 |   |   |   |-- auth.py             POST /api/auth/register, /api/auth/login
-|   |   |   |-- invoices.py         Upload, list, file, update (PUT/PATCH), delete, export-monthly
+|   |   |   |-- invoices.py         Upload, unrecognized sort, duplicate resolution, list,
+|   |   |   |                       file, update (PUT/PATCH), delete
 |   |   |   |-- categories.py       List expense categories
 |   |   |   |-- dashboard.py        GET /api/dashboard/stats
 |   |   |   |-- system.py           GET /api/system/time (WorldTimeAPI proxy)
 |   |   |-- services/
-|   |       |-- ocr_service.py             Tesseract/EasyOCR/pypdf, zero-hallucination
+|   |       |-- ocr_service.py             PyMuPDF/Pillow -> Tesseract/EasyOCR, zero-hallucination
 |   |       |-- external_time_service.py   WorldTimeAPI client
-|   |       |-- report_service.py          Monthly CSV + receipts zip builder
-|   |       |-- email_service.py           SMTP sender (mock mode without SMTP config)
+|   |-- tests/                      pytest suite (health, auth, invoices, OCR parsing)
 |   |-- seed.py                     Seeds 2 demo businesses with sample data
-|   |-- requirements.txt
+|   |-- Dockerfile                  Backend image (Tesseract + Hebrew), used by Render/GHCR
+|   |-- requirements.txt / requirements-dev.txt
 |   |-- .env.example
 |
 |-- frontend/                   React + TypeScript + Vite + Tailwind CSS v4
-    |-- src/
-        |-- App.tsx                  Tab layout (Dashboard / Upload / Invoices)
-        |-- context/AuthContext.tsx
-        |-- api/client.ts            Axios instance with JWT interceptor
-        |-- types/index.ts
-        |-- components/
-            |-- Header.tsx               Nav + live clock + user menu
-            |-- LiveClock.tsx            Live external-time widget
-            |-- LoginForm.tsx            Sign in / register a business
-            |-- UploadZone.tsx           Drag & drop receipt upload (zero-form retry on unclear scans)
-            |-- ReceiptPreviewModal.tsx  View the original receipt image/PDF
-            |-- ContextMenu.tsx          Right-click menu on receipt cards (edit/delete/download)
-            |-- EditInvoiceModal.tsx     Edit vendor/amount/date/category for one invoice
-            |-- ConfirmDialog.tsx        Generic confirmation dialog (used for delete)
-            |-- SendToAccountantModal.tsx  Monthly report email dispatch
-            |-- Modal.tsx                Shared modal shell
-            |-- Dashboard.tsx            Stat cards + pie/bar charts (recharts)
-            |-- InvoiceList.tsx          Searchable/filterable invoice table
+|   |-- src/
+|   |   |-- App.tsx                  Tab layout (Dashboard / Upload / Invoices)
+|   |   |-- context/AuthContext.tsx
+|   |   |-- api/client.ts            Axios instance with JWT interceptor (VITE_API_BASE_URL)
+|   |   |-- types/index.ts
+|   |   |-- utils/currency.ts        Shared amount formatting
+|   |   |-- components/
+|   |       |-- Header.tsx                  Nav + live clock + user menu
+|   |       |-- LiveClock.tsx               Live external-time widget
+|   |       |-- LoginForm.tsx               Sign in / register a business
+|   |       |-- UploadZone.tsx              Drag & drop receipt upload (+ "unrecognized" banner)
+|   |       |-- Toast.tsx                   Transient notifications
+|   |       |-- InvoiceExplorer.tsx         Folder-style receipt browser (Year/Month folders)
+|   |       |-- MonthFolderCard.tsx         One month's folder
+|   |       |-- ReceiptFileCard.tsx         One receipt in a folder
+|   |       |-- ReceiptThumbnail.tsx        Receipt image/PDF thumbnail
+|   |       |-- ReceiptLightboxModal.tsx    Full-size receipt viewer
+|   |       |-- UnrecognizedFolderCard.tsx  Persistent "לא מזוהים" (Unrecognized) folder
+|   |       |-- UnrecognizedFileCard.tsx    One unrecognized receipt
+|   |       |-- UnrecognizedReviewModal.tsx Preview + form to sort an unrecognized receipt
+|   |       |-- ConflictResolutionModal.tsx Resolve an upload that duplicates an existing invoice
+|   |       |-- ContextMenu.tsx             Right-click menu on receipt cards (edit/delete/download)
+|   |       |-- EditInvoiceModal.tsx        Edit vendor/amount/date/category for one invoice
+|   |       |-- ConfirmDialog.tsx           Generic confirmation dialog (used for delete)
+|   |       |-- SendToAccountantModal.tsx   Monthly report share/download
+|   |       |-- Modal.tsx                   Shared modal shell
+|   |       |-- Dashboard.tsx               Stat cards + pie/bar charts (recharts)
+|   |-- Dockerfile + nginx.conf      Frontend image for docker-compose (nginx proxies /api)
+|   |-- vercel.json                  SPA rewrites for the Vercel deployment
+|
+|-- docker-compose.yml          Full stack (backend + nginx frontend) from GHCR images
+|-- .github/workflows/deploy.yml  CI (lint/test/typecheck) + GHCR build + SSH deploy
 ```
 
 ## Multi-Tenancy Model
@@ -142,7 +163,7 @@ redeploys/restarts (e.g. on Render's free tier) lose nothing.
    create smartreceipt`.
 3. In `backend/.env`, set:
 
-   ```
+   ```text
    DATABASE_URL=sqlite+libsql://<db>-<org>.turso.io/?authToken=<token>
    ```
 
@@ -165,12 +186,21 @@ hand (`ALTER TABLE invoices ADD COLUMN ...`, e.g. from `turso db shell`).
 
 `app/services/ocr_service.py` extracts Vendor Name, Total Amount, Date, and Tax ID
 (Israeli company/business ID) from an uploaded receipt using real extraction only -
-it never invents data. It tries, in order:
+it never invents data.
 
-1. **Tesseract** (`pytesseract` + `Pillow`), if installed - accepted only when average
-   OCR confidence is >= 60% and all required fields were found
+Every upload is first rasterized to per-page images - PDFs via **PyMuPDF**
+(`pymupdf`), photos (JPEG/PNG/WEBP) via **Pillow** - so PDFs and photographed
+receipts go through exactly the same recognition engines and confidence threshold.
+The engines are tried in order:
+
+1. **Tesseract** (`pytesseract`) - accepted only when average OCR confidence is
+   >= 60% and all required fields were found
 2. **EasyOCR**, if installed - same confidence/field requirements
-3. **pypdf** embedded-text extraction, for PDFs with a text layer
+
+Every attempt (file open, raw OCR text per page, confidence per Tesseract page-mode,
+which required field was missing) is printed to the backend console with an
+`[ocr_service]` prefix, which is the quickest way to see why a given receipt wasn't
+recognized.
 
 If no engine is installed, the file can't be read reliably, or confidence is too low,
 `POST /api/invoices/upload` still saves the receipt (file included) but flags it
@@ -180,9 +210,20 @@ fills in the real vendor/amount/date there (`POST /api/invoices/unrecognized/{id
 A saved invoice's vendor/amount/date/category can still be corrected afterwards via
 the file explorer's right-click "Edit Details" action (`PUT /api/invoices/{id}`).
 
-To enable real OCR, uncomment the relevant lines in `backend/requirements.txt` and
-`pip install` them (for Tesseract, also install the Tesseract binary itself and make
-sure it's on your `PATH`).
+### OCR setup
+
+`pytesseract`, `Pillow` and `pymupdf` are installed by `requirements.txt`; EasyOCR is
+commented out there (it's large) - uncomment and `pip install` it to enable it. The
+Tesseract **binary** itself must also be installed and on your `PATH`.
+
+For Hebrew + English recognition (`heb+eng`), place `heb.traineddata` and
+`eng.traineddata` (from [tessdata](https://github.com/tesseract-ocr/tessdata)) in
+`%LOCALAPPDATA%\SmartReceipt\tessdata`. Without that directory Tesseract falls back
+to English only. It deliberately lives outside the repo: Tesseract's Windows binary
+can't handle non-ASCII characters in `--tessdata-dir`, and its own install directory
+isn't writable without admin rights. The backend Docker image installs
+`tesseract-ocr` + `tesseract-ocr-heb` and copies the language files into that same
+layout automatically.
 
 ## Receipt File Storage & Viewing
 
@@ -195,22 +236,37 @@ fetches this endpoint as a blob and renders it as an `<img>` (JPEG/PNG/WEBP) or
 Original File", which fetches the same endpoint and saves it locally.
 `DELETE /api/invoices/{id}` removes the row, file included.
 
-An upload that collides with an existing invoice (409 `DUPLICATE_CONFLICT`) isn't
-saved until the user resolves the conflict - it's held in the backend's memory for up
-to an hour meanwhile, so it's lost if the backend restarts before the user decides.
+An upload that collides with an existing invoice (409 `DUPLICATE_CONFLICT` - matched
+by tax id / invoice number / vendor+amount+date) isn't saved until the user resolves
+the conflict in the conflict dialog (`POST /api/invoices/resolve-conflict`; the held
+file is previewable via `GET /api/invoices/file-preview`). Meanwhile it's held in the
+backend's memory for up to an hour, so it's lost if the backend restarts before the
+user decides.
+
+## Tests & Code Quality
+
+```bash
+cd backend
+pip install -r requirements-dev.txt
+pytest                                   # backend/tests/
+ruff check . && ruff format --check .    # same lint/format gate as CI
+```
+
+The tests never touch Turso: `tests/conftest.py` points the app at a throwaway local
+SQLite file before the app is imported.
+
+The frontend has no test runner; CI typechecks it with `tsc -b` (part of
+`pnpm build`). A git pre-commit hook (`frontend/.husky/pre-commit`, enabled by
+`pnpm install` via the `prepare` script) runs Prettier on staged frontend files and
+`ruff format` + `ruff check --fix` on staged Python files.
 
 ## Monthly Accountant Export
 
-`POST /api/invoices/export-monthly` (body: `{ "email", "month", "year" }`) aggregates
-that month's validated invoices for the caller's business, builds a CSV summary
-(`app/services/report_service.py`) and a zip of the original receipt files, and emails
-both to the given address via `app/services/email_service.py`. Use the **Send to
-Accountant** (שלח לרואה חשבון) button on the Dashboard to trigger it from the UI.
-
-SMTP is optional: if `SMTP_HOST` is unset in `backend/.env`, the composed email is
-written to `backend/sent_emails/*.eml` instead of being sent, and the response reports
-`"mode": "mock"` so the UI can tell the user. Configure `SMTP_HOST`/`SMTP_USERNAME`/
-`SMTP_PASSWORD` etc. in `.env` to send for real.
+The **Send to Accountant** (שלח לרואה חשבון) button builds the month's report in the
+browser - a CSV summary plus the original receipt files - and opens the device's share
+sheet (WhatsApp, email, etc.), or downloads it as a zip where sharing isn't supported.
+No email service or server configuration is needed; see
+`frontend/src/utils/accountantReport.ts`.
 
 ## External Time (WorldTimeAPI)
 
@@ -262,8 +318,7 @@ The deploy server itself needs, once, ahead of the first deploy:
 - A `~/smartreceipt/` directory
 - A `~/smartreceipt/.env` file (copy from the repo's root `.env.example` and fill in
   `SECRET_KEY`, `DATABASE_URL` (the Turso URL - see
-  [Database (Turso)](#database-turso)), `CORS_ORIGINS`, and
-  SMTP settings) - `docker-compose.yml` reads it for variable substitution, and
+  [Database (Turso)](#database-turso)), and `CORS_ORIGINS`) - `docker-compose.yml` reads it for variable substitution, and
   `DATABASE_URL` has no default, so `docker compose up -d` fails on the server
   without it
 
@@ -340,7 +395,8 @@ have a free tier and neither needs the `.github/workflows/deploy.yml` pipeline
 5. Click **Deploy**. Vercel builds with `pnpm build` and serves `frontend/dist`;
    `frontend/vercel.json` (already in the repo) rewrites every route to
    `index.html` so refreshing a client-side route (e.g. `/dashboard`) doesn't 404.
-6. Copy the resulting URL (e.g. `https://smartreceipt.vercel.app`).
+6. Copy the resulting URL. The production deployment of this repo lives at
+   <https://receipt-parser-core.vercel.app/>.
 
 ### 3. Close the loop: allow the frontend's origin in CORS
 

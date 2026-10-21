@@ -1,6 +1,7 @@
 import { X } from 'lucide-react';
 import { useEffect, useState, type FormEvent, type MouseEvent } from 'react';
 
+import { cachedGet, getReceiptFile } from '../api/cache';
 import { api } from '../api/client';
 import type { Category, Invoice } from '../types';
 
@@ -35,9 +36,8 @@ export default function UnrecognizedReviewModal({
     let url: string | null = null;
     let cancelled = false;
 
-    api
-      .get(`/invoices/${invoice.id}/file`, { responseType: 'blob' })
-      .then(({ data }) => {
+    getReceiptFile(invoice.id)
+      .then((data) => {
         if (cancelled) return;
         url = URL.createObjectURL(data);
         setObjectUrl(url);
@@ -53,9 +53,8 @@ export default function UnrecognizedReviewModal({
   }, [invoice.id]);
 
   useEffect(() => {
-    api
-      .get<Category[]>('/categories')
-      .then(({ data }) => setCategories(data))
+    cachedGet<Category[]>('/categories')
+      .then(setCategories)
       .catch(() => {});
   }, []);
 

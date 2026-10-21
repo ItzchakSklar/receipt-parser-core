@@ -5,7 +5,6 @@ backend/__pycache__/
 backend/**/__pycache__/
 backend/.env
 backend/.env.example
-backend/sent_emails/
 
 # Frontend
 frontend/node_modules/
